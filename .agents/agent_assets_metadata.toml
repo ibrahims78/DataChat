@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "tp8v3lFIhY1ysC_LO8B5W"
+uri = "file://vision.md"
+type = "text"
+title = "وثيقة رؤية المنتج — المحلل الذكي للبيانات"
