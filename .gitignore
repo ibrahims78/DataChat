@@ -1,0 +1,9 @@
+node_modules/
+dist/
+uploads/generated/
+uploads/*.xlsx
+uploads/*.pdf
+uploads/*.docx
+uploads/*.csv
+.env
+*.log

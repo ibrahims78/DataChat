@@ -1,0 +1,144 @@
+/* DataChat — Custom CSS Variables and Component Styles */
+:root {
+  --bg: #F8F7FF;
+  --surface: #FFFFFF;
+  --border: #E5E7EB;
+  --text: #1E1B4B;
+  --muted: #6B7280;
+  --primary: #7C3AED;
+  --primary-light: #A78BFA;
+}
+
+.dark {
+  --bg: #0F0E17;
+  --surface: #1a1928;
+  --border: #2D2B3D;
+  --text: #F1F0FF;
+  --muted: #9CA3AF;
+  --primary: #A78BFA;
+  --primary-light: #C4B5FD;
+}
+
+* { box-sizing: border-box; }
+
+html[dir="rtl"] { direction: rtl; }
+html[dir="ltr"] { direction: ltr; }
+
+body {
+  font-family: 'Cairo', sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+  transition: background-color 0.3s ease, color 0.3s ease;
+  margin: 0;
+  padding: 0;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* Button styles */
+.btn-primary {
+  background-color: #7c3aed;
+  color: white;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s;
+  border: none;
+  cursor: pointer;
+  font-family: 'Cairo', sans-serif;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.btn-primary:hover { background-color: #6d28d9; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary:focus { outline: 2px solid #a78bfa; outline-offset: 2px; }
+
+.btn-ghost {
+  background: transparent;
+  color: #374151;
+  font-weight: 500;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s;
+  border: none;
+  cursor: pointer;
+  font-family: 'Cairo', sans-serif;
+}
+.btn-ghost:hover { background-color: #f3f4f6; }
+.dark .btn-ghost { color: #d1d5db; }
+.dark .btn-ghost:hover { background-color: #1a1928; }
+
+.btn-danger {
+  background-color: #dc2626;
+  color: white;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s;
+  border: none;
+  cursor: pointer;
+  font-family: 'Cairo', sans-serif;
+}
+.btn-danger:hover { background-color: #b91c1c; }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Card */
+.card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+}
+
+/* Input field */
+.input-field {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  background-color: var(--surface);
+  color: var(--text);
+  font-family: 'Cairo', sans-serif;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+  outline: none;
+}
+.input-field:focus { border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.2); }
+.input-field::placeholder { color: var(--muted); }
+
+/* Chat bubbles */
+.chat-bubble-user {
+  background-color: #7c3aed;
+  color: white;
+  border-radius: 1rem;
+  border-bottom-left-radius: 0.25rem;
+  padding: 0.75rem 1rem;
+  max-width: 75%;
+  margin-inline-start: auto;
+}
+.chat-bubble-ai {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  border-bottom-right-radius: 0.25rem;
+  padding: 0.75rem 1rem;
+  max-width: 85%;
+}
+
+/* Prose styles for markdown */
+.prose p { margin: 0.5rem 0; }
+.prose ul { list-style: disc; padding-inline-start: 1.5rem; margin: 0.5rem 0; }
+.prose ol { list-style: decimal; padding-inline-start: 1.5rem; margin: 0.5rem 0; }
+.prose code { background: rgba(124,58,237,0.1); padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-size: 0.875rem; }
+.prose pre { background: #1e1b4b; color: #e2e8f0; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin: 0.5rem 0; }
+.prose pre code { background: transparent; padding: 0; }
+.prose h1, .prose h2, .prose h3 { font-weight: 700; margin: 1rem 0 0.5rem; }
+.prose table { border-collapse: collapse; width: 100%; margin: 0.5rem 0; font-size: 0.875rem; }
+.prose th { background: #7c3aed; color: white; padding: 0.5rem 0.75rem; text-align: start; }
+.prose td { border: 1px solid var(--border); padding: 0.5rem 0.75rem; }
+.prose tr:nth-child(even) td { background: rgba(124,58,237,0.03); }
