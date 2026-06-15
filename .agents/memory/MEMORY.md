@@ -1,0 +1,2 @@
+- [Gemini model names](gemini-models.md) — gemini-1.5-* deprecated; use gemini-2.5-flash as default; systemInstruction must be {role,parts} object not a string
+- [Tailwind v4 PostCSS fix](tailwind-v4.md) — v4 cannot be used as PostCSS plugin; use CDN in index.html + plain CSS; disable postcss in vite.config.ts; rename tailwind.config.js

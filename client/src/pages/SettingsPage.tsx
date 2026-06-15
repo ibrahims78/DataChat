@@ -208,9 +208,10 @@ export default function SettingsPage() {
           <div>
             <label className="block text-sm font-semibold text-[var(--text)] mb-2">نموذج Gemini</label>
             <select className="input-field" value={aiSettings.model} onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}>
-              <option value="gemini-1.5-flash">Gemini 1.5 Flash (سريع)</option>
-              <option value="gemini-1.5-pro">Gemini 1.5 Pro (دقيق)</option>
-              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash (موصى به)</option>
+              <option value="gemini-2.5-pro">Gemini 2.5 Pro (أعلى دقة)</option>
+              <option value="gemini-flash-latest">Gemini Flash Latest</option>
+              <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (اقتصادي)</option>
             </select>
           </div>
           <div>

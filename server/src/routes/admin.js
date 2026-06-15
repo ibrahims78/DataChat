@@ -10,7 +10,7 @@ router.use(authenticate, adminOnly)
 router.get('/stats', async (req, res) => {
   try {
     const [users, projects, genFiles, messages] = await Promise.all([
-      db.query("SELECT COUNT(*) FROM users WHERE is_active=true AND last_login > NOW() - INTERVAL '30 days' OR created_at > NOW() - INTERVAL '30 days'"),
+      db.query("SELECT COUNT(*) FROM users WHERE is_active=true"),
       db.query('SELECT COUNT(*) FROM projects'),
       db.query('SELECT COUNT(*) FROM generated_files'),
       db.query('SELECT COUNT(*) FROM messages')

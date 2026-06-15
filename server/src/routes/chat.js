@@ -110,12 +110,14 @@ router.post('/:projectId/message', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
 
-    const systemPrompt = (aiConfig.system_prompt || '') +
-      (fileContents ? `\n\nالملفات المتاحة:\n${fileContents}` : '')
+    const basePrompt = aiConfig.system_prompt ||
+      'أنت مساعد ذكي متخصص في تحليل البيانات. تحلّل الملفات وتجيب على الأسئلة بدقة باللغة التي يستخدمها المستخدم.'
+    const systemText = basePrompt + (fileContents ? `\n\nالملفات المتاحة للتحليل:\n${fileContents}` : '')
 
     const model = genAI.getGenerativeModel({
-      model: aiConfig.model || 'gemini-1.5-flash',
-      generationConfig: { temperature: parseFloat(aiConfig.temperature) || 0.7 }
+      model: aiConfig.model || 'gemini-2.5-flash',
+      generationConfig: { temperature: parseFloat(aiConfig.temperature) || 0.7 },
+      systemInstruction: { role: 'user', parts: [{ text: systemText }] }
     })
 
     const chatHistory = msgs.map(m => ({
@@ -123,7 +125,7 @@ router.post('/:projectId/message', async (req, res) => {
       parts: [{ text: m.content }]
     }))
 
-    const chat = model.startChat({ history: chatHistory, systemInstruction: systemPrompt })
+    const chat = model.startChat({ history: chatHistory })
 
     let fullResponse = ''
     try {

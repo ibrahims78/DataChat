@@ -6,6 +6,7 @@ interface User {
   name: string
   email: string
   role: 'admin' | 'employee'
+  onboarding_done?: boolean
 }
 
 interface AuthContextType {
