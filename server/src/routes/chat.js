@@ -91,23 +91,22 @@ router.post('/:projectId/message', async (req, res) => {
     if (!projectCheck.rows.length) return res.status(404).json({ error: 'Project not found' })
     if (req.user.role !== 'admin' && projectCheck.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
 
-    const files = await db.query('SELECT * FROM files WHERE project_id=$1', [req.params.projectId])
-    const settings = await db.query('SELECT * FROM ai_settings WHERE id=1')
-    const aiConfig = settings.rows[0] || {}
+    // Run all DB queries in parallel
+    const [filesResult, settingsResult, historyResult] = await Promise.all([
+      db.query('SELECT * FROM files WHERE project_id=$1', [req.params.projectId]),
+      db.query('SELECT * FROM ai_settings WHERE id=1'),
+      db.query('SELECT role, content FROM messages WHERE conversation_id=$1 ORDER BY created_at DESC LIMIT 20', [conversationId])
+    ])
+    const aiConfig = settingsResult.rows[0] || {}
+    const msgs = historyResult.rows.reverse()
 
-    let fileContents = ''
-    for (const file of files.rows) {
-      fileContents += await extractFileContent(file) + '\n\n'
-    }
-
-    const history = await db.query(
-      'SELECT role, content FROM messages WHERE conversation_id=$1 ORDER BY created_at DESC LIMIT 20',
-      [conversationId]
-    )
-    const msgs = history.rows.reverse()
+    // Extract all file contents in parallel
+    const contentParts = await Promise.all(filesResult.rows.map(f => extractFileContent(f)))
+    const fileContents = contentParts.join('\n\n')
 
     await db.query('INSERT INTO messages (conversation_id, role, content) VALUES ($1,$2,$3)', [conversationId, 'user', message])
 
+    // Set SSE headers immediately so client starts receiving
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
@@ -116,10 +115,17 @@ router.post('/:projectId/message', async (req, res) => {
       'أنت مساعد ذكي متخصص في تحليل البيانات. تحلّل الملفات وتجيب على الأسئلة بدقة باللغة التي يستخدمها المستخدم.'
     const systemText = basePrompt + (fileContents ? `\n\nالملفات المتاحة للتحليل:\n${fileContents}` : '')
 
+    const selectedModel = aiConfig.model || 'gemini-2.5-flash'
     const genAI = getGenAI(aiConfig.api_key)
+
+    // Disable thinking budget for gemini-2.5-* models to avoid long delays
+    const isThinkingModel = selectedModel.startsWith('gemini-2.5')
     const model = genAI.getGenerativeModel({
-      model: aiConfig.model || 'gemini-2.5-flash',
-      generationConfig: { temperature: parseFloat(aiConfig.temperature) || 0.7 },
+      model: selectedModel,
+      generationConfig: {
+        temperature: parseFloat(aiConfig.temperature) || 0.7,
+        ...(isThinkingModel ? { thinkingConfig: { thinkingBudget: 0 } } : {})
+      },
       systemInstruction: { role: 'user', parts: [{ text: systemText }] }
     })
 
