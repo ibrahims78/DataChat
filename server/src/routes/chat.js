@@ -6,6 +6,7 @@ const pdfParse = require('pdf-parse')
 const mammoth = require('mammoth')
 const { parse } = require('csv-parse/sync')
 const ExcelJS = require('exceljs')
+const PDFDocument = require('pdfkit')
 const { GoogleGenerativeAI } = require('@google/generative-ai')
 const db = require('../lib/db')
 const { authenticate } = require('../middleware/auth')
@@ -170,6 +171,108 @@ async function generateExcelFile(data, filename) {
   const filePath = path.join(genDir, storedName)
   await wb.xlsx.writeFile(filePath)
   return { storedName, originalName: `${filename}.xlsx`, fileSize: fs.statSync(filePath).size }
+}
+
+const NOTO_FONT  = path.join(__dirname, '../../assets/fonts/NotoNaskhArabic-Regular.ttf')
+
+// Generate a real PDF with proper Arabic rendering using Noto Naskh Arabic font
+async function generatePDFFile(pdfData, filename) {
+  const title   = (typeof pdfData === 'string' ? '' : pdfData.title)  || filename
+  const content = (typeof pdfData === 'string' ? pdfData : pdfData.content) || ''
+  const dateStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' })
+
+  const genDir = path.join(__dirname, '../../../uploads/generated')
+  if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true })
+  const storedName = `${Date.now()}-${filename}.pdf`
+  const filePath   = path.join(genDir, storedName)
+
+  const doc = new PDFDocument({ size: 'A4', margin: 0,
+    info: { Title: title, Author: 'DataChat', Creator: 'DataChat AI' } })
+  const stream = fs.createWriteStream(filePath)
+  doc.pipe(stream)
+
+  if (fs.existsSync(NOTO_FONT)) {
+    doc.registerFont('NotoAr', NOTO_FONT)
+  }
+  const F = fs.existsSync(NOTO_FONT) ? 'NotoAr' : 'Helvetica'
+  const FB = F  // Noto doesn't have a separate bold, use same
+
+  const W = doc.page.width, H = doc.page.height
+  const ML = 50, MR = 50, CW = W - ML - MR
+
+  // ── Header ─────────────────────────────────────────────────────────────────
+  doc.rect(0, 0, W, 88).fill('#7C3AED')
+  doc.rect(0, 84, W, 4).fill('#5B21B6')
+  doc.font(FB).fontSize(22).fillColor('#FFFFFF')
+    .text(title, ML, 20, { width: CW, align: 'right' })
+  doc.font(F).fontSize(10).fillColor('#DDD6FE')
+    .text('DataChat — المحلل الذكي للبيانات', ML, 62, { width: CW, align: 'right' })
+
+  // ── Date strip ──────────────────────────────────────────────────────────────
+  doc.rect(0, 88, W, 26).fill('#F5F3FF')
+  doc.font(F).fontSize(9).fillColor('#6D28D9')
+    .text(`تاريخ الإنشاء: ${dateStr}`, ML, 99, { width: CW, align: 'right' })
+
+  doc.y = 130
+
+  // ── Content ────────────────────────────────────────────────────────────────
+  for (const raw of content.split('\n')) {
+    const line = raw.trim()
+
+    if (doc.y > H - 80) {
+      doc.addPage({ margin: 0 })
+      doc.rect(0, 0, W, 6).fill('#7C3AED')
+      doc.y = 22
+    }
+
+    if (!line) { doc.moveDown(0.35); continue }
+
+    if (line.startsWith('# ')) {
+      doc.moveDown(0.5)
+      doc.rect(ML - 8, doc.y - 2, CW + 16, 30).fill('#F5F3FF')
+      doc.font(FB).fontSize(16).fillColor('#5B21B6')
+        .text(line.slice(2), ML, doc.y + 5, { width: CW, align: 'right' })
+      doc.moveDown(1.3).fillColor('#1F2937')
+
+    } else if (line.startsWith('## ')) {
+      doc.moveDown(0.4)
+      doc.font(FB).fontSize(13).fillColor('#7C3AED')
+        .text(line.slice(3), ML, doc.y, { width: CW, align: 'right' })
+      doc.moveDown(0.15)
+      doc.moveTo(ML, doc.y).lineTo(W - MR, doc.y).lineWidth(0.5).strokeColor('#DDD6FE').stroke()
+      doc.moveDown(0.4).fillColor('#1F2937')
+
+    } else if (/^[-•*]\s/.test(line)) {
+      doc.font(F).fontSize(12).fillColor('#374151')
+        .text('◆  ' + line.replace(/^[-•*]\s+/, ''), ML + 12, doc.y, { width: CW - 12, align: 'right', lineGap: 2 })
+      doc.moveDown(0.2)
+
+    } else if (/^\d+\.\s/.test(line)) {
+      doc.font(F).fontSize(12).fillColor('#374151')
+        .text(line, ML + 12, doc.y, { width: CW - 12, align: 'right', lineGap: 2 })
+      doc.moveDown(0.2)
+
+    } else if (line.startsWith('**') && line.endsWith('**')) {
+      doc.font(FB).fontSize(12).fillColor('#111827')
+        .text(line.replace(/\*\*/g, ''), ML, doc.y, { width: CW, align: 'right' })
+      doc.moveDown(0.3)
+
+    } else {
+      doc.font(F).fontSize(12).fillColor('#1F2937')
+        .text(line, ML, doc.y, { width: CW, align: 'right', lineGap: 3 })
+      doc.moveDown(0.25)
+    }
+  }
+
+  // ── Footer ─────────────────────────────────────────────────────────────────
+  const footerY = H - 36
+  doc.moveTo(ML, footerY).lineTo(W - MR, footerY).lineWidth(0.5).strokeColor('#E5E7EB').stroke()
+  doc.font(F).fontSize(8).fillColor('#9CA3AF')
+    .text('تم إنشاء هذا التقرير بواسطة DataChat AI Platform', ML, footerY + 8, { width: CW, align: 'center' })
+
+  doc.end()
+  await new Promise((resolve, reject) => { stream.on('finish', resolve); stream.on('error', reject) })
+  return { storedName, originalName: `${filename}.pdf`, fileSize: fs.statSync(filePath).size }
 }
 
 // Generate a professional report as Excel (reliable Arabic support, no font crashes)
@@ -481,13 +584,13 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       try {
         const pdfData = repairJSON(pdfMatch[1].trim())
         const filename = pdfData.filename || ('تقرير_' + Date.now())
-        const pf = await generateReportAsExcel(pdfData, filename)
+        const pf = await generatePDFFile(pdfData, filename)
         const gf = await db.query(
           'INSERT INTO generated_files (project_id, message_id, original_name, stored_name, file_type, file_size) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-          [req.params.projectId, aiMsgResult.rows[0].id, pf.originalName, pf.storedName, 'excel', pf.fileSize || null]
+          [req.params.projectId, aiMsgResult.rows[0].id, pf.originalName, pf.storedName, 'pdf', pf.fileSize || null]
         )
         generatedFile = gf.rows[0]
-      } catch (e) { console.error('Report generation error:', e.message, e.stack) }
+      } catch (e) { console.error('PDF generation error:', e.message, e.stack) }
     }
 
     await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [req.params.projectId])
@@ -537,7 +640,7 @@ router.get('/:projectId/export', async (req, res) => {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8')
       return res.send(content)
     }
-    const pdf = await generateReportAsExcel({ title: 'تصدير المحادثة', content }, 'chat-export')
+    const pdf = await generatePDFFile({ title: 'تصدير المحادثة', content }, 'chat-export')
     res.download(path.join(__dirname, '../../../uploads/generated', pdf.storedName), pdf.originalName)
   } catch (err) {
     res.status(500).json({ error: err.message })
