@@ -201,7 +201,7 @@ export default function ProjectPage() {
           <div className="flex items-center gap-3 text-xs text-[var(--muted)]">
             {project.files.slice(0, 3).map((f, i) => (
               <span key={i} className="flex items-center gap-1">
-                <span>{f.file_type === 'excel' ? '📊' : f.file_type === 'csv' ? '📋' : f.file_type === 'pdf' ? '📄' : '📝'}</span>
+                <span>{f.file_type === 'excel' ? '📊' : f.file_type === 'csv' ? '📋' : f.file_type === 'pdf' ? '📄' : f.file_type === 'html' ? '🌐' : '📝'}</span>
                 <span className="truncate max-w-24">{f.original_name}</span>
               </span>
             ))}

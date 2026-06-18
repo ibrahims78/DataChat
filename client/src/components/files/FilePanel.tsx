@@ -29,8 +29,8 @@ interface Props {
   onUpload: () => void
 }
 
-const typeIcons: Record<string, string> = { excel: '📊', csv: '📋', pdf: '📄', word: '📝' }
-const genTypeIcons: Record<string, string> = { excel: '📊', pdf: '📄' }
+const typeIcons: Record<string, string> = { excel: '📊', csv: '📋', pdf: '📄', word: '📝', html: '🌐' }
+const genTypeIcons: Record<string, string> = { excel: '📊', pdf: '📄', html: '🌐' }
 
 function formatSize(bytes: number) {
   if (!bytes) return ''
