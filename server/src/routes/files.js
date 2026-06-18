@@ -77,10 +77,11 @@ router.post('/:projectId', upload.single('file'), async (req, res) => {
     if (req.user.role !== 'admin' && projectCheck.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
     const countCheck = await db.query('SELECT COUNT(*) FROM files WHERE project_id=$1', [req.params.projectId])
     if (parseInt(countCheck.rows[0].count) >= 10) return res.status(400).json({ error: 'Maximum 10 files per project' })
-    const fileType = getFileType(req.file.originalname)
+    const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8')
+    const fileType = getFileType(originalName)
     const result = await db.query(
       'INSERT INTO files (project_id, original_name, stored_name, file_type, file_size, mime_type) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [req.params.projectId, req.file.originalname, req.file.filename, fileType, req.file.size, req.file.mimetype]
+      [req.params.projectId, originalName, req.file.filename, fileType, req.file.size, req.file.mimetype]
     )
     await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [req.params.projectId])
     const preview = await getFilePreview(req.file.path, fileType)
