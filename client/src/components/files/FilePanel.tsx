@@ -139,6 +139,24 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
     } catch { setPreview({ type: 'error', message: 'فشل تحميل المعاينة' }) }
   }
 
+  // ─── Download uploaded file (opens in Excel/associated app) ────────────────
+  const downloadFile = async (f: FileItem) => {
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`/api/files/${projectId}/${f.id}/download`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (!res.ok) throw new Error()
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName(f)
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch { toast.error('فشل التحميل') }
+  }
+
   // ─── Download generated file ───────────────────────────────────────────────
   const downloadGenFile = async (f: GenFile) => {
     try {
@@ -297,10 +315,17 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
             className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="إعادة التسمية">
             <Pencil size={11} />
           </button>
-          <button onClick={() => showPreview(f)}
-            className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="معاينة">
-            <Eye size={11} />
-          </button>
+          {(f.file_type === 'excel' || f.file_type === 'csv') ? (
+            <button onClick={() => downloadFile(f)}
+              className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="فتح في Excel">
+              <Download size={11} />
+            </button>
+          ) : (
+            <button onClick={() => showPreview(f)}
+              className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="معاينة">
+              <Eye size={11} />
+            </button>
+          )}
           <button onClick={() => setDeleteTarget({ type: 'file', item: f })}
             className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-[var(--muted)] hover:text-red-500 transition-colors" title="حذف">
             <Trash2 size={11} />

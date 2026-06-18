@@ -228,6 +228,23 @@ router.post('/:projectId', upload.single('file'), async (req, res) => {
 
 // ─── Per-file routes ─────────────────────────────────────────────────────────
 
+router.get('/:projectId/:fileId/download', async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM files WHERE id=$1 AND project_id=$2', [req.params.fileId, req.params.projectId])
+    if (!result.rows.length) return res.status(404).json({ error: 'File not found' })
+    const file = result.rows[0]
+    const filePath = path.join(__dirname, '../../../uploads', file.stored_name)
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' })
+    const projectCheck = await db.query('SELECT * FROM projects WHERE id=$1', [req.params.projectId])
+    if (projectCheck.rows.length && req.user.role !== 'admin' && projectCheck.rows[0].user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+    res.download(filePath, file.display_name || file.original_name)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 router.get('/:projectId/:fileId/preview', async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM files WHERE id=$1 AND project_id=$2', [req.params.fileId, req.params.projectId])
