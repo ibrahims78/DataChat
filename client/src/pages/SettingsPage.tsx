@@ -293,10 +293,10 @@ export default function SettingsPage() {
             <textarea className="input-field" rows={7} value={aiSettings.system_prompt}
               onChange={e => setAiSettings((p: any) => ({ ...p, system_prompt: e.target.value }))}
               placeholder="أنت مساعد ذكي متخصص في تحليل البيانات..." />
-            <div className="mt-2 flex items-start gap-2 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg px-3 py-2">
-              <span className="text-primary-600 mt-0.5 shrink-0">ℹ️</span>
-              <p className="text-xs text-primary-700 dark:text-primary-300">
-                تعليمات إنشاء الملفات (Excel وPDF) تُضاف تلقائياً من النظام ولا تحتاج لكتابتها هنا. هذا الحقل للتخصيص الإضافي فقط.
+            <div className="mt-2 flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+              <span className="mt-0.5 shrink-0">⚙️</span>
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                <strong>ملاحظة:</strong> بروتوكول إنشاء الملفات (Excel / PDF) يُضاف تلقائياً من النظام بعد هذا النص، ولا تحتاج لكتابته يدوياً. أي تعديل تحفظه هنا يُطبَّق فوراً على كل المحادثات.
               </p>
             </div>
           </div>

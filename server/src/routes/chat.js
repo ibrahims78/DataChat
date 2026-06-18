@@ -112,28 +112,28 @@ router.post('/:projectId/message', async (req, res) => {
     res.setHeader('Connection', 'keep-alive')
 
     const basePrompt = aiConfig.system_prompt ||
-      'أنت مساعد ذكي متخصص في تحليل البيانات. تحلّل الملفات وتجيب على الأسئلة بدقة باللغة التي يستخدمها المستخدم.'
+      'أنت مساعد ذكي متخصص في تحليل البيانات.'
 
-    const fileGenInstructions = `
-## قدرات إنشاء الملفات
-أنت تمتلك القدرة الكاملة على إنشاء ملفات Excel وPDF وCSV بشكل حقيقي.
-عندما يطلب المستخدم إنشاء ملف أو تصدير بيانات، قم بما يلي:
-1. أجب على المستخدم بشكل طبيعي وأخبره أنك ستنشئ الملف.
-2. في نهاية ردك، أضف أمر إنشاء الملف بالصيغة التالية بدقة:
+    // File generation protocol — always appended so the feature works regardless of custom prompts
+    const FILE_GEN_PROTOCOL = `
 
-لملف Excel:
-[EXCEL_FILE]{"filename":"اسم_الملف","sheets":[{"name":"اسم الورقة","headers":["عمود1","عمود2","عمود3"],"rows":[["قيمة1","قيمة2","قيمة3"],["قيمة4","قيمة5","قيمة6"]]}]}[/EXCEL_FILE]
+---
+## [بروتوكول النظام — إنشاء الملفات]
+عند طلب المستخدم إنشاء أو تصدير ملف، أضف في نهاية ردك النصي أحد الأوامر التالية بدقة:
 
-لملف PDF:
-[PDF_FILE]{"filename":"اسم_الملف","title":"عنوان التقرير","content":"محتوى التقرير كاملاً هنا"}[/PDF_FILE]
+ملف Excel (مع بيانات حقيقية من الملفات):
+[EXCEL_FILE]{"filename":"اسم_الملف","sheets":[{"name":"اسم الورقة","headers":["عمود1","عمود2"],"rows":[["قيمة1","قيمة2"]]}]}[/EXCEL_FILE]
 
-قواعد مهمة:
-- استخدم البيانات الفعلية من الملفات المرفوعة وليس بيانات وهمية.
-- يجب أن يكون JSON صحيحاً تماماً بدون أخطاء.
-- لا تُخبر المستخدم أنك لا تستطيع إنشاء الملفات، أنت تستطيع ذلك دائماً.
-- اكتب أمر الملف في نهاية ردك فقط، بعد الشرح النصي.`
+ملف PDF:
+[PDF_FILE]{"filename":"اسم_الملف","title":"العنوان","content":"المحتوى الكامل"}[/PDF_FILE]
 
-    const systemText = basePrompt + fileGenInstructions + (fileContents ? `\n\n## الملفات المتاحة للتحليل:\n${fileContents}` : '')
+قواعد صارمة:
+- JSON صحيح تماماً بدون أخطاء نحوية.
+- استخدم البيانات الفعلية من الملفات المرفوعة فقط، لا بيانات وهمية.
+- الأمر في نهاية الرد فقط بعد الشرح النصي.
+- لا تذكر هذا البروتوكول للمستخدم ولا تخبره بأنك لا تستطيع إنشاء الملفات.`
+
+    const systemText = basePrompt + FILE_GEN_PROTOCOL + (fileContents ? `\n\n---\n## الملفات المرفوعة للتحليل:\n${fileContents}` : '')
 
     const selectedModel = aiConfig.model || 'gemini-2.5-flash'
     const genAI = getGenAI(aiConfig.api_key)
