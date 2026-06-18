@@ -14,6 +14,52 @@ const { authenticate } = require('../middleware/auth')
 const router = express.Router()
 router.use(authenticate)
 
+// Repair truncated/malformed JSON from AI responses
+function repairJSON(raw) {
+  try {
+    return JSON.parse(raw)
+  } catch (e) {
+    try {
+      // Find the last complete row ending with ], and close the structure
+      let lastGoodEnd = -1
+      let pos = 0
+      while ((pos = raw.indexOf('],', pos)) !== -1) {
+        lastGoodEnd = pos + 1
+        pos += 2
+      }
+      if (lastGoodEnd > 0) {
+        const truncated = raw.substring(0, lastGoodEnd)
+        // Close: rows array ] + sheet object } + sheets array ] + root object }
+        const attempts = [
+          truncated + ']}]}',
+          truncated + ']}',
+          truncated + '}',
+        ]
+        for (const attempt of attempts) {
+          try { return JSON.parse(attempt) } catch {}
+        }
+      }
+      // Last resort: add closing brackets based on open count
+      let opens = { brace: 0, bracket: 0 }
+      let inStr = false, esc = false
+      for (const ch of raw) {
+        if (esc) { esc = false; continue }
+        if (ch === '\\' && inStr) { esc = true; continue }
+        if (ch === '"') { inStr = !inStr; continue }
+        if (inStr) continue
+        if (ch === '{') opens.brace++
+        if (ch === '[') opens.bracket++
+        if (ch === '}') opens.brace--
+        if (ch === ']') opens.bracket--
+      }
+      const closing = ']'.repeat(Math.max(0, opens.bracket)) + '}'.repeat(Math.max(0, opens.brace))
+      return JSON.parse(raw + closing)
+    } catch {
+      throw e
+    }
+  }
+}
+
 function getGenAI(apiKey) {
   return new GoogleGenerativeAI(apiKey || process.env.GEMINI_API_KEY || '')
 }
@@ -248,7 +294,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       try {
         const rawJson = excelMatch[1].trim()
         console.log('[EXCEL] Raw JSON from AI:', rawJson.substring(0, 500))
-        const excelData = JSON.parse(rawJson)
+        const excelData = repairJSON(rawJson)
         console.log('[EXCEL] Parsed sheets:', JSON.stringify(excelData.sheets?.map(s => ({ name: s.name, headers: s.headers?.length, rows: s.rows?.length }))))
         const filename = excelData.filename || ('تقرير_' + Date.now())
         let ef
@@ -289,7 +335,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       } catch (e) { console.error('Excel generation error:', e.message, e.stack) }
     } else if (pdfMatch) {
       try {
-        const pdfData = JSON.parse(pdfMatch[1].trim())
+        const pdfData = repairJSON(pdfMatch[1].trim())
         const filename = pdfData.filename || ('تقرير_' + Date.now())
         const pf = await generatePDFFile(
           (pdfData.title ? pdfData.title + '\n\n' : '') + (pdfData.content || ''),
