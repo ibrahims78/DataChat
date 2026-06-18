@@ -178,8 +178,46 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
     }
 
     // Parse file generation commands from AI response
-    const excelMatch = fullResponse.match(/\[EXCEL_FILE\]([\s\S]*?)\[\/EXCEL_FILE\]/)
-    const pdfMatch = fullResponse.match(/\[PDF_FILE\]([\s\S]*?)\[\/PDF_FILE\]/)
+    let excelMatch = fullResponse.match(/\[EXCEL_FILE\]([\s\S]*?)\[\/EXCEL_FILE\]/)
+    let pdfMatch = fullResponse.match(/\[PDF_FILE\]([\s\S]*?)\[\/PDF_FILE\]/)
+
+    // --- Fallback: if user asked for a file but AI didn't generate a tag, make a second focused call ---
+    const fileKeywords = /ملف\s*(excel|اكسل|xlsx|إكسل|pdf|بي دي اف|تقرير|word)|أنشئ\s*ملف|اعطني\s*ملف|عطني\s*ملف|صدّر|صدر\s*البيانات|تحميل\s*ملف|download.*file|create.*file|generate.*file|export/i
+    const userWantsFile = fileKeywords.test(message)
+
+    if (userWantsFile && !excelMatch && !pdfMatch) {
+      console.log('[FALLBACK] User requested file but AI did not generate tag. Triggering fallback call.')
+      try {
+        const isPDF = /pdf|بي دي اف|تقرير\s*pdf/i.test(message)
+        const fileType = isPDF ? 'PDF' : 'Excel'
+        const fallbackPrompt = isPDF
+          ? `أنشئ ملف PDF للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n\nالصيغة المطلوبة:\n[PDF_FILE]{"filename":"اسم","title":"العنوان","content":"المحتوى الكامل"}[/PDF_FILE]`
+          : `أنشئ ملف Excel للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n${fileContents ? `\nالبيانات المتاحة:\n${fileContents.substring(0, 3000)}` : ''}\n\nالصيغة المطلوبة:\n[EXCEL_FILE]{"filename":"اسم_الملف","sheets":[{"name":"اسم الورقة","headers":["عمود1","عمود2"],"rows":[["قيمة1","قيمة2"]]}]}[/EXCEL_FILE]\n\nأخرج الوسم فقط لا غير.`
+
+        const fallbackModel = genAI.getGenerativeModel({
+          model: selectedModel,
+          generationConfig: { temperature: 0.3 }
+        })
+        const fallbackResult = await fallbackModel.generateContent(fallbackPrompt)
+        const fallbackText = fallbackResult.response.text()
+        console.log('[FALLBACK] Response:', fallbackText.substring(0, 300))
+
+        if (isPDF) {
+          pdfMatch = fallbackText.match(/\[PDF_FILE\]([\s\S]*?)\[\/PDF_FILE\]/)
+        } else {
+          excelMatch = fallbackText.match(/\[EXCEL_FILE\]([\s\S]*?)\[\/EXCEL_FILE\]/)
+        }
+
+        if (excelMatch || pdfMatch) {
+          console.log(`[FALLBACK] Successfully extracted ${fileType} tag from fallback call.`)
+        } else {
+          console.warn('[FALLBACK] Fallback call also did not produce a file tag.')
+        }
+      } catch (fbErr) {
+        console.error('[FALLBACK] Error in fallback file generation:', fbErr.message)
+      }
+    }
+    // --- End fallback ---
 
     // Strip command tags from the visible message
     let cleanResponse = fullResponse
