@@ -431,7 +431,8 @@ router.post('/:projectId/message', async (req, res) => {
 [PDF_FILE]{"filename":"اسم_الملف","title":"عنوان التقرير","content":"# القسم الأول\n\nالمحتوى هنا...\n\n## تفصيل\n\n- نقطة أولى\n- نقطة ثانية"}[/PDF_FILE]
 
 ### صيغة ملف HTML (أضفها في آخر ردك عندما يطلب المستخدم ملف HTML أو صفحة ويب):
-[HTML_FILE]{"filename":"اسم_الملف","content":"<!DOCTYPE html><html lang=\"ar\" dir=\"rtl\">...</html>"}[/HTML_FILE]
+استخدم هذه الصيغة بالضبط — اسم الملف ثم | ثم محتوى HTML مباشرةً بدون JSON:
+[HTML_FILE]اسم_الملف.html|<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>العنوان</title></head><body>...المحتوى...</body></html>[/HTML_FILE]
 
 ### تنسيق محتوى PDF — مهم جداً:
 استخدم علامات Markdown داخل حقل content لجعل التقرير احترافياً:
@@ -506,7 +507,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         const isPDF = !isHTML && /pdf|بي دي اف|تقرير\s*pdf/i.test(message)
         const fileType = isHTML ? 'HTML' : isPDF ? 'PDF' : 'Excel'
         const fallbackPrompt = isHTML
-          ? `أنشئ ملف HTML للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n\nالصيغة المطلوبة:\n[HTML_FILE]{"filename":"اسم_الملف","content":"<!DOCTYPE html><html lang=\\"ar\\" dir=\\"rtl\\">...</html>"}[/HTML_FILE]`
+          ? `أنشئ ملف HTML كاملاً للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n\nالصيغة المطلوبة (اسم الملف ثم | ثم محتوى HTML مباشرةً):\n[HTML_FILE]اسم_الملف.html|<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"></head><body>...المحتوى الكامل...</body></html>[/HTML_FILE]\n\nمهم: لا تستخدم JSON، ضع اسم الملف ثم | ثم كود HTML مباشرةً.`
           : isPDF
           ? `أنشئ ملف PDF للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n\nالصيغة المطلوبة:\n[PDF_FILE]{"filename":"اسم","title":"العنوان","content":"المحتوى الكامل"}[/PDF_FILE]`
           : `أنشئ ملف Excel للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n${fileContents ? `\nالبيانات المتاحة:\n${fileContents.substring(0, 3000)}` : ''}\n\nالصيغة المطلوبة:\n[EXCEL_FILE]{"filename":"اسم_الملف","sheets":[{"name":"اسم الورقة","headers":["عمود1","عمود2"],"rows":[["قيمة1","قيمة2"]]}]}[/EXCEL_FILE]\n\nأخرج الوسم فقط لا غير.`
@@ -546,9 +547,9 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       .trim()
 
     // If AI sent only a file tag with no text, add a default confirmation message
-    const hadFileTag = excelMatch || pdfMatch
+    const hadFileTag = excelMatch || pdfMatch || htmlMatch
     if (hadFileTag && !cleanResponse) {
-      const fileType = excelMatch ? 'Excel' : 'PDF'
+      const fileType = excelMatch ? 'Excel' : pdfMatch ? 'PDF' : 'HTML'
       cleanResponse = `جاري إنشاء ملف ${fileType} بالبيانات المطلوبة… ستجد زر التحميل في لوحة الملفات بعد لحظات.`
     }
 
@@ -612,9 +613,27 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       } catch (e) { console.error('PDF generation error:', e.message, e.stack) }
     } else if (htmlMatch) {
       try {
-        const htmlData = repairJSON(htmlMatch[1].trim())
-        const filename = (htmlData.filename || ('تقرير_' + Date.now())).replace(/\.html$/i, '')
-        const htmlContent = htmlData.content || ''
+        const rawHtml = htmlMatch[1].trim()
+        // New format: "filename.html|<!DOCTYPE html>..."
+        // Fallback: try JSON for backward compatibility
+        let filename, htmlContent
+        const pipeIdx = rawHtml.indexOf('|')
+        if (pipeIdx !== -1) {
+          filename = rawHtml.slice(0, pipeIdx).trim().replace(/\.html$/i, '')
+          htmlContent = rawHtml.slice(pipeIdx + 1).trim()
+        } else {
+          // Fallback to JSON (old format)
+          try {
+            const htmlData = repairJSON(rawHtml)
+            filename = (htmlData.filename || ('تقرير_' + Date.now())).replace(/\.html$/i, '')
+            htmlContent = htmlData.content || ''
+          } catch {
+            filename = 'تقرير_' + Date.now()
+            htmlContent = rawHtml
+          }
+        }
+        if (!filename) filename = 'تقرير_' + Date.now()
+        console.log('[HTML] Generating file:', filename + '.html', 'content length:', htmlContent.length)
         const genDir = path.join(__dirname, '../../../uploads/generated')
         if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true })
         const storedName = `${Date.now()}-${filename}.html`
@@ -626,6 +645,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
           [req.params.projectId, aiMsgResult.rows[0].id, `${filename}.html`, storedName, 'html', fileSize]
         )
         generatedFile = gf.rows[0]
+        console.log('[HTML] File saved:', storedName, 'size:', fileSize)
       } catch (e) { console.error('HTML generation error:', e.message, e.stack) }
     }
 
