@@ -35,11 +35,45 @@ export default function ProjectPage() {
       const res = await api.get(`/projects/${id}`)
       setProject(res.data)
       setMessages(res.data.messages || [])
+      return res.data
     } catch { toast.error('فشل تحميل المشروع') }
     finally { setLoading(false) }
   }
 
-  useEffect(() => { fetchProject() }, [id])
+  useEffect(() => {
+    let pollTimer: ReturnType<typeof setTimeout> | null = null
+
+    const load = async () => {
+      const data = await fetchProject()
+      if (!data) return
+      const msgs: any[] = data.messages || []
+      // If last message is from user (no AI reply yet), poll until AI responds
+      const lastMsg = msgs[msgs.length - 1]
+      if (lastMsg && lastMsg.role === 'user') {
+        let attempts = 0
+        const poll = async () => {
+          attempts++
+          if (attempts > 20) return // give up after ~40s
+          try {
+            const res = await api.get(`/projects/${id}`)
+            const newMsgs: any[] = res.data.messages || []
+            const newLast = newMsgs[newMsgs.length - 1]
+            if (newLast && newLast.role === 'assistant') {
+              setProject(res.data)
+              setMessages(newMsgs)
+              toast.success('✅ تم استلام الرد — راجع لوحة الملفات إن طلبت ملفاً', { duration: 4000 })
+            } else {
+              pollTimer = setTimeout(poll, 2000)
+            }
+          } catch {}
+        }
+        pollTimer = setTimeout(poll, 2000)
+      }
+    }
+
+    load()
+    return () => { if (pollTimer) clearTimeout(pollTimer) }
+  }, [id])
 
   const sendMessage = async (content: string) => {
     if (!project?.conversation_id) return
