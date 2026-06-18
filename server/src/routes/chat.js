@@ -584,10 +584,11 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       try {
         const pdfData = repairJSON(pdfMatch[1].trim())
         const filename = pdfData.filename || ('تقرير_' + Date.now())
-        const pf = await generatePDFFile(pdfData, filename)
+        // Use Excel-based report generation for full Arabic RTL support (no rectangles)
+        const pf = await generateReportAsExcel(pdfData, filename)
         const gf = await db.query(
           'INSERT INTO generated_files (project_id, message_id, original_name, stored_name, file_type, file_size) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-          [req.params.projectId, aiMsgResult.rows[0].id, pf.originalName, pf.storedName, 'pdf', pf.fileSize || null]
+          [req.params.projectId, aiMsgResult.rows[0].id, pf.originalName, pf.storedName, 'excel', pf.fileSize || null]
         )
         generatedFile = gf.rows[0]
       } catch (e) { console.error('PDF generation error:', e.message, e.stack) }
@@ -640,7 +641,8 @@ router.get('/:projectId/export', async (req, res) => {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8')
       return res.send(content)
     }
-    const pdf = await generatePDFFile({ title: 'تصدير المحادثة', content }, 'chat-export')
+    // Use Excel-based export for full Arabic RTL support (no rectangles issue with pdfkit)
+    const pdf = await generateReportAsExcel({ title: 'تصدير المحادثة', content }, 'chat-export')
     res.download(path.join(__dirname, '../../../uploads/generated', pdf.storedName), pdf.originalName)
   } catch (err) {
     res.status(500).json({ error: err.message })
