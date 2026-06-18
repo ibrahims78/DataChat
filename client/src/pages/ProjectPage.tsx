@@ -66,6 +66,13 @@ export default function ProjectPage() {
         body: JSON.stringify({ message: content, conversationId: project.conversation_id })
       })
 
+      if (response.status === 401) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        window.location.href = '/login'
+        return
+      }
+
       const reader = response.body!.getReader()
       const decoder = new TextDecoder()
       let buffer = ''

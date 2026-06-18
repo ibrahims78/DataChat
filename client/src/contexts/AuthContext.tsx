@@ -41,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearTimeout(timeout)
       timeout = setTimeout(() => {
         logout()
-      }, 15 * 60 * 1000)
+      }, 8 * 60 * 60 * 1000)
     }
     const events = ['mousedown', 'keypress', 'scroll', 'touchstart']
     events.forEach(e => document.addEventListener(e, resetTimer))
