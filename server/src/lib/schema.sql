@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS ai_settings (
   id SERIAL PRIMARY KEY,
   system_prompt TEXT DEFAULT 'أنت مساعد ذكي متخصص في تحليل البيانات. تحلّل الملفات وتجيب على الأسئلة بدقة باللغة التي يستخدمها المستخدم.',
   temperature DECIMAL(3,2) DEFAULT 0.70,
-  model VARCHAR(100) DEFAULT 'gemini-1.5-flash',
+  model VARCHAR(100) DEFAULT 'gemini-2.5-flash',
   api_key TEXT DEFAULT NULL,
   updated_at TIMESTAMP DEFAULT NOW()
 );

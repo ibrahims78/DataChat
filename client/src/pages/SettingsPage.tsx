@@ -13,7 +13,7 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('stats')
   const [stats, setStats] = useState<any>(null)
   const [users, setUsers] = useState<any[]>([])
-  const [aiSettings, setAiSettings] = useState<any>({ system_prompt: '', temperature: 0.7, model: 'gemini-1.5-flash', api_key: '' })
+  const [aiSettings, setAiSettings] = useState<any>({ system_prompt: '', temperature: 0.7, model: 'gemini-2.5-flash', api_key: '' })
   const [showApiKey, setShowApiKey] = useState(false)
   const [apiKeyChanged, setApiKeyChanged] = useState(false)
   const [testingApi, setTestingApi] = useState(false)
