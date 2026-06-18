@@ -90,9 +90,15 @@ export default function ProjectPage() {
             const data = JSON.parse(line.slice(6))
             if (data.type === 'text') {
               fullText += data.content
-              setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: fullText } : m))
+              // Strip file command tags (complete and partial) from displayed text in real-time
+              const displayText = fullText
+                .replace(/\[EXCEL_FILE\][\s\S]*?\[\/EXCEL_FILE\]/g, '')
+                .replace(/\[PDF_FILE\][\s\S]*?\[\/PDF_FILE\]/g, '')
+                .replace(/\[EXCEL_FILE\][\s\S]*$/g, '')
+                .replace(/\[PDF_FILE\][\s\S]*$/g, '')
+                .trim()
+              setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: displayText } : m))
             } else if (data.type === 'update_content') {
-              // Replace displayed text with clean version (tags stripped)
               fullText = data.content
               setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: fullText } : m))
             } else if (data.type === 'done') {
