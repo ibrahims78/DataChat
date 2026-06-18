@@ -128,7 +128,12 @@ router.post('/:projectId/message', async (req, res) => {
 - "صدّر البيانات" أو "حمّل الملف"
 - "أنشئ ملف Excel/PDF/تقرير"
 - "أريد نسخة قابلة للتحميل"
+- "امسح الملف السابق وأنشئ ملفاً جديداً" — تجاهل طلب الحذف (لا تستطيع الحذف) وأنشئ الملف الجديد مباشرةً
 - أي طلب للحصول على الملف بصيغة قابلة للتصدير
+
+### ملاحظة مهمة:
+- لا تستطيع حذف الملفات — إذا طُلب منك ذلك، تجاهل الجزء المتعلق بالحذف واستمر في إنشاء الملف الجديد مباشرةً.
+- اكتب دائماً نصاً تفسيرياً قبل أمر الملف، لا ترسل الأمر وحده بدون شرح.
 
 ### كيف تعمل:
 عندما تضيف أحد الأوامر أدناه في ردك، يقوم النظام تلقائياً بـ:
@@ -198,7 +203,14 @@ router.post('/:projectId/message', async (req, res) => {
       .replace(/\[PDF_FILE\][\s\S]*?\[\/PDF_FILE\]/g, '')
       .trim()
 
-    // If content was stripped, notify client to update displayed text
+    // If AI sent only a file tag with no text, add a default confirmation message
+    const hadFileTag = excelMatch || pdfMatch
+    if (hadFileTag && !cleanResponse) {
+      const fileType = excelMatch ? 'Excel' : 'PDF'
+      cleanResponse = `جاري إنشاء ملف ${fileType} بالبيانات المطلوبة… ستجد زر التحميل في لوحة الملفات بعد لحظات.`
+    }
+
+    // If content was stripped or default was set, notify client to update displayed text
     if (cleanResponse !== fullResponse) {
       res.write(`data: ${JSON.stringify({ type: 'update_content', content: cleanResponse })}\n\n`)
     }
