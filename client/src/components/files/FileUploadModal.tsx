@@ -39,6 +39,7 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
     onDrop, maxFiles: 1, maxSize: 50 * 1024 * 1024,
     accept: {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.ms-excel.sheet.macroEnabled.12': ['.xlsm'],
       'application/vnd.ms-excel': ['.xls'],
       'text/csv': ['.csv'],
       'application/pdf': ['.pdf'],

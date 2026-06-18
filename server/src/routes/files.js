@@ -24,7 +24,7 @@ const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = ['.xlsx', '.xls', '.csv', '.pdf', '.docx', '.doc']
+    const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc']
     const ext = path.extname(file.originalname).toLowerCase()
     if (allowed.includes(ext)) cb(null, true)
     else cb(new Error('File type not supported'))
@@ -33,7 +33,7 @@ const upload = multer({
 
 function getFileType(filename) {
   const ext = path.extname(filename).toLowerCase()
-  const map = { '.xlsx': 'excel', '.xls': 'excel', '.csv': 'csv', '.pdf': 'pdf', '.docx': 'word', '.doc': 'word' }
+  const map = { '.xlsx': 'excel', '.xlsm': 'excel', '.xls': 'excel', '.csv': 'csv', '.pdf': 'pdf', '.docx': 'word', '.doc': 'word' }
   return map[ext] || 'unknown'
 }
 
