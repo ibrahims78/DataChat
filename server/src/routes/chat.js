@@ -97,37 +97,184 @@ async function extractFileContent(file) {
   } catch (e) { return `[خطأ في قراءة ${file.original_name}: ${e.message}]` }
 }
 
-async function generateExcelFile(data, filename) {
-  const wb = new ExcelJS.Workbook()
-  const ws = wb.addWorksheet('البيانات')
-  if (data.headers) {
-    const headerRow = ws.addRow(data.headers)
+function styleExcelSheet(ws, headers, rows) {
+  ws.views = [{ rightToLeft: true, state: 'frozen', ySplit: 1 }]
+  if (headers && headers.length) {
+    const headerRow = ws.addRow(headers)
+    headerRow.height = 28
     headerRow.eachCell(cell => {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }
-      cell.font = { color: { argb: 'FFFFFFFF' }, bold: true }
+      cell.font = { color: { argb: 'FFFFFFFF' }, bold: true, size: 12 }
+      cell.alignment = { horizontal: 'center', vertical: 'middle' }
+      cell.border = {
+        bottom: { style: 'medium', color: { argb: 'FF5B21B6' } }
+      }
     })
   }
-  if (data.rows) data.rows.forEach(row => ws.addRow(row))
-  ws.columns.forEach(col => { col.width = 18 })
+  if (rows) {
+    rows.forEach((row, idx) => {
+      const r = ws.addRow(row)
+      r.height = 22
+      const isEven = idx % 2 === 0
+      r.eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isEven ? 'FFF5F3FF' : 'FFFFFFFF' } }
+        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+        cell.border = {
+          bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } }
+        }
+      })
+    })
+  }
+  // Auto width (min 14, max 40)
+  if (ws.columnCount > 0) {
+    ws.columns.forEach(col => {
+      let max = 14
+      col.eachCell({ includeEmpty: false }, cell => {
+        const len = cell.value ? String(cell.value).length + 4 : 14
+        if (len > max) max = len
+      })
+      col.width = Math.min(max, 40)
+    })
+  }
+}
+
+async function generateExcelFile(data, filename) {
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'DataChat'
+  const ws = wb.addWorksheet('البيانات')
+  styleExcelSheet(ws, data.headers || [], data.rows || [])
   const genDir = path.join(__dirname, '../../../uploads/generated')
   if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true })
   const storedName = `${Date.now()}-${filename}.xlsx`
-  await wb.xlsx.writeFile(path.join(genDir, storedName))
-  return { storedName, originalName: `${filename}.xlsx` }
+  const filePath = path.join(genDir, storedName)
+  await wb.xlsx.writeFile(filePath)
+  return { storedName, originalName: `${filename}.xlsx`, fileSize: fs.statSync(filePath).size }
 }
 
-async function generatePDFFile(content, filename) {
+const FONT_DIR = path.join(__dirname, '../../assets/fonts')
+const AMIRI_REGULAR = path.join(FONT_DIR, 'Amiri-Regular.ttf')
+const AMIRI_BOLD = path.join(FONT_DIR, 'Amiri-Bold.ttf')
+
+async function generatePDFFile(pdfData, filename) {
   const genDir = path.join(__dirname, '../../../uploads/generated')
   if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true })
   const storedName = `${Date.now()}-${filename}.pdf`
-  const doc = new PDFDocument({ margin: 50 })
-  doc.pipe(fs.createWriteStream(path.join(genDir, storedName)))
-  doc.font('Helvetica-Bold').fontSize(18).text('DataChat — تقرير', { align: 'center' })
-  doc.moveDown()
-  doc.font('Helvetica').fontSize(12).text(content, { paragraphGap: 5 })
+  const filePath = path.join(genDir, storedName)
+
+  const doc = new PDFDocument({
+    size: 'A4',
+    margin: 0,
+    info: { Title: pdfData.title || filename, Author: 'DataChat', Creator: 'DataChat AI' }
+  })
+  const stream = fs.createWriteStream(filePath)
+  doc.pipe(stream)
+
+  const hasAmiri = fs.existsSync(AMIRI_REGULAR)
+  if (hasAmiri) {
+    doc.registerFont('Amiri', AMIRI_REGULAR)
+    doc.registerFont('Amiri-Bold', AMIRI_BOLD)
+  }
+  const fontR = hasAmiri ? 'Amiri' : 'Helvetica'
+  const fontB = hasAmiri ? 'Amiri-Bold' : 'Helvetica-Bold'
+
+  const W = doc.page.width
+  const H = doc.page.height
+  const ML = 50, MR = 50
+  const CW = W - ML - MR
+
+  // ── Header background ──────────────────────────────────────────────────────
+  doc.rect(0, 0, W, 90).fill('#7C3AED')
+  doc.rect(0, 86, W, 4).fill('#5B21B6')
+
+  // Title
+  doc.font(fontB).fontSize(22).fillColor('#FFFFFF')
+    .text(pdfData.title || filename, ML, 20, { width: CW, align: 'right' })
+
+  // Subtitle
+  doc.font(fontR).fontSize(10).fillColor('#DDD6FE')
+    .text('DataChat — المحلل الذكي للبيانات', ML, 60, { width: CW, align: 'right' })
+
+  // ── Date strip ─────────────────────────────────────────────────────────────
+  doc.rect(0, 90, W, 28).fill('#F5F3FF')
+  const dateStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' })
+  doc.font(fontR).fontSize(9).fillColor('#6D28D9')
+    .text(`تاريخ الإنشاء: ${dateStr}`, ML, 101, { width: CW, align: 'right' })
+
+  // ── Content area ───────────────────────────────────────────────────────────
+  doc.y = 135
+  doc.fillColor('#1F2937')
+
+  const content = typeof pdfData === 'string' ? pdfData : (pdfData.content || '')
+  const lines = content.split('\n')
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+
+    // Add page if needed
+    if (doc.y > H - 80) {
+      doc.addPage({ margin: 0 })
+      doc.rect(0, 0, W, 6).fill('#7C3AED')
+      doc.y = 25
+    }
+
+    if (!line) { doc.moveDown(0.35); continue }
+
+    if (line.startsWith('## ')) {
+      // Sub-heading
+      doc.moveDown(0.5)
+      doc.font(fontB).fontSize(14).fillColor('#7C3AED')
+        .text(line.slice(3), ML, doc.y, { width: CW, align: 'right' })
+      doc.moveDown(0.15)
+      doc.moveTo(ML, doc.y).lineTo(W - MR, doc.y).lineWidth(0.5).strokeColor('#DDD6FE').stroke()
+      doc.moveDown(0.4)
+      doc.fillColor('#1F2937')
+
+    } else if (line.startsWith('# ')) {
+      // Main heading
+      doc.moveDown(0.6)
+      doc.rect(ML - 8, doc.y - 2, CW + 16, 28).fill('#F5F3FF')
+      doc.font(fontB).fontSize(16).fillColor('#5B21B6')
+        .text(line.slice(2), ML, doc.y + 4, { width: CW, align: 'right' })
+      doc.moveDown(1.2)
+      doc.fillColor('#1F2937')
+
+    } else if (line.startsWith('- ') || line.startsWith('• ') || line.startsWith('* ')) {
+      // Bullet
+      const text = line.replace(/^[-•*]\s+/, '')
+      doc.font(fontR).fontSize(12).fillColor('#374151')
+        .text(`◆  ${text}`, ML + 12, doc.y, { width: CW - 12, align: 'right', lineGap: 2 })
+      doc.moveDown(0.2)
+
+    } else if (/^\d+\.\s/.test(line)) {
+      // Numbered
+      doc.font(fontR).fontSize(12).fillColor('#374151')
+        .text(line, ML + 12, doc.y, { width: CW - 12, align: 'right', lineGap: 2 })
+      doc.moveDown(0.2)
+
+    } else if (line.startsWith('**') && line.endsWith('**')) {
+      // Bold line
+      doc.font(fontB).fontSize(12).fillColor('#111827')
+        .text(line.replace(/\*\*/g, ''), ML, doc.y, { width: CW, align: 'right' })
+      doc.moveDown(0.25)
+
+    } else {
+      // Regular paragraph
+      doc.font(fontR).fontSize(12).fillColor('#1F2937')
+        .text(line, ML, doc.y, { width: CW, align: 'right', lineGap: 3 })
+      doc.moveDown(0.25)
+    }
+  }
+
+  // ── Footer ─────────────────────────────────────────────────────────────────
+  const footerY = H - 38
+  doc.moveTo(ML, footerY).lineTo(W - MR, footerY).lineWidth(0.5).strokeColor('#E5E7EB').stroke()
+  doc.font(fontR).fontSize(8).fillColor('#9CA3AF')
+    .text('تم إنشاء هذا التقرير بواسطة DataChat AI Platform', ML, footerY + 8, { width: CW, align: 'center' })
+
   doc.end()
-  await new Promise(r => doc.on('finish', r))
-  return { storedName, originalName: `${filename}.pdf` }
+  await new Promise((resolve, reject) => { stream.on('finish', resolve); stream.on('error', reject) })
+  const size = fs.statSync(filePath).size
+  return { storedName, originalName: `${filename}.pdf`, fileSize: size }
 }
 
 router.post('/:projectId/message', async (req, res) => {
@@ -173,7 +320,15 @@ router.post('/:projectId/message', async (req, res) => {
 [EXCEL_FILE]{"filename":"اسم_الملف","sheets":[{"name":"اسم الورقة","headers":["عمود1","عمود2","عمود3"],"rows":[["قيمة1","قيمة2","قيمة3"],["قيمة4","قيمة5","قيمة6"]]}]}[/EXCEL_FILE]
 
 ### صيغة ملف PDF (أضفها في آخر ردك):
-[PDF_FILE]{"filename":"اسم_الملف","title":"عنوان التقرير","content":"محتوى التقرير الكامل هنا"}[/PDF_FILE]
+[PDF_FILE]{"filename":"اسم_الملف","title":"عنوان التقرير","content":"# القسم الأول\n\nالمحتوى هنا...\n\n## تفصيل\n\n- نقطة أولى\n- نقطة ثانية"}[/PDF_FILE]
+
+### تنسيق محتوى PDF — مهم جداً:
+استخدم علامات Markdown داخل حقل content لجعل التقرير احترافياً:
+- "# العنوان الرئيسي" — عنوان كبير بخلفية ملونة
+- "## عنوان فرعي" — عنوان ثانوي مع خط فاصل
+- "- نقطة" — قائمة نقطية
+- "**نص**" — نص عريض
+- أسطر فارغة بين الفقرات لمسافة مناسبة
 
 ### مثال عملي — إذا طلب المستخدم "أعطني ملف Excel للموظفين":
 يجب أن ينتهي ردك بـ:
@@ -300,36 +455,28 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         let ef
         if (excelData.sheets && excelData.sheets.length > 0) {
           const wb = new ExcelJS.Workbook()
+          wb.creator = 'DataChat'
           for (const sheet of excelData.sheets) {
             const ws = wb.addWorksheet(sheet.name || 'ورقة 1')
             const headers = sheet.headers || []
             const rows = sheet.rows || []
-            if (headers.length) {
-              const headerRow = ws.addRow(headers)
-              headerRow.eachCell(cell => {
-                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }
-                cell.font = { color: { argb: 'FFFFFFFF' }, bold: true }
-                cell.alignment = { horizontal: 'center' }
-              })
-            }
-            rows.forEach(row => ws.addRow(row))
             console.log(`[EXCEL] Sheet "${sheet.name}": ${headers.length} headers, ${rows.length} rows`)
-            // Set column widths only if columns exist
-            if (ws.columnCount > 0) ws.columns.forEach(col => { col.width = 20 })
+            styleExcelSheet(ws, headers, rows)
           }
           const genDir = path.join(__dirname, '../../../uploads/generated')
           if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true })
           const storedName = `${Date.now()}-${filename}.xlsx`
-          await wb.xlsx.writeFile(path.join(genDir, storedName))
-          ef = { storedName, originalName: `${filename}.xlsx` }
+          const efPath = path.join(genDir, storedName)
+          await wb.xlsx.writeFile(efPath)
+          ef = { storedName, originalName: `${filename}.xlsx`, fileSize: fs.statSync(efPath).size }
         } else {
           const flatData = { headers: excelData.headers || [], rows: excelData.rows || [] }
           console.log('[EXCEL] Flat format: headers=', flatData.headers.length, 'rows=', flatData.rows.length)
           ef = await generateExcelFile(flatData, filename)
         }
         const gf = await db.query(
-          'INSERT INTO generated_files (project_id, message_id, original_name, stored_name, file_type) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-          [req.params.projectId, aiMsgResult.rows[0].id, ef.originalName, ef.storedName, 'excel']
+          'INSERT INTO generated_files (project_id, message_id, original_name, stored_name, file_type, file_size) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+          [req.params.projectId, aiMsgResult.rows[0].id, ef.originalName, ef.storedName, 'excel', ef.fileSize || null]
         )
         generatedFile = gf.rows[0]
       } catch (e) { console.error('Excel generation error:', e.message, e.stack) }
@@ -337,16 +484,13 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       try {
         const pdfData = repairJSON(pdfMatch[1].trim())
         const filename = pdfData.filename || ('تقرير_' + Date.now())
-        const pf = await generatePDFFile(
-          (pdfData.title ? pdfData.title + '\n\n' : '') + (pdfData.content || ''),
-          filename
-        )
+        const pf = await generatePDFFile(pdfData, filename)
         const gf = await db.query(
-          'INSERT INTO generated_files (project_id, message_id, original_name, stored_name, file_type) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-          [req.params.projectId, aiMsgResult.rows[0].id, pf.originalName, pf.storedName, 'pdf']
+          'INSERT INTO generated_files (project_id, message_id, original_name, stored_name, file_type, file_size) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+          [req.params.projectId, aiMsgResult.rows[0].id, pf.originalName, pf.storedName, 'pdf', pf.fileSize || null]
         )
         generatedFile = gf.rows[0]
-      } catch (e) { console.error('PDF generation error:', e.message) }
+      } catch (e) { console.error('PDF generation error:', e.message, e.stack) }
     }
 
     await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [req.params.projectId])
@@ -396,7 +540,7 @@ router.get('/:projectId/export', async (req, res) => {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8')
       return res.send(content)
     }
-    const pdf = await generatePDFFile(content, 'chat-export')
+    const pdf = await generatePDFFile({ title: 'تصدير المحادثة', content }, 'chat-export')
     res.download(path.join(__dirname, '../../../uploads/generated', pdf.storedName), pdf.originalName)
   } catch (err) {
     res.status(500).json({ error: err.message })
