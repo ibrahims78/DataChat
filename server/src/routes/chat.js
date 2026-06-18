@@ -14,7 +14,9 @@ const { authenticate } = require('../middleware/auth')
 const router = express.Router()
 router.use(authenticate)
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
+function getGenAI(apiKey) {
+  return new GoogleGenerativeAI(apiKey || process.env.GEMINI_API_KEY || '')
+}
 
 async function extractFileContent(file) {
   const filePath = path.join(__dirname, '../../../uploads', file.stored_name)
@@ -114,6 +116,7 @@ router.post('/:projectId/message', async (req, res) => {
       'أنت مساعد ذكي متخصص في تحليل البيانات. تحلّل الملفات وتجيب على الأسئلة بدقة باللغة التي يستخدمها المستخدم.'
     const systemText = basePrompt + (fileContents ? `\n\nالملفات المتاحة للتحليل:\n${fileContents}` : '')
 
+    const genAI = getGenAI(aiConfig.api_key)
     const model = genAI.getGenerativeModel({
       model: aiConfig.model || 'gemini-2.5-flash',
       generationConfig: { temperature: parseFloat(aiConfig.temperature) || 0.7 },

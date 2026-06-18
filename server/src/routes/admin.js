@@ -79,7 +79,13 @@ router.delete('/users/:id', async (req, res) => {
 router.get('/settings', async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM ai_settings WHERE id=1')
-    res.json(result.rows[0] || {})
+    const row = result.rows[0] || {}
+    // mask the api key — only send whether it's set, not the actual value
+    res.json({
+      ...row,
+      api_key: row.api_key ? '••••••••••••••••••••••••••••••••••••••' : '',
+      has_api_key: !!row.api_key
+    })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -87,14 +93,53 @@ router.get('/settings', async (req, res) => {
 
 router.patch('/settings', async (req, res) => {
   try {
-    const { system_prompt, temperature, model } = req.body
-    await db.query(
-      'UPDATE ai_settings SET system_prompt=$1, temperature=$2, model=$3, updated_at=NOW() WHERE id=1',
-      [system_prompt, temperature, model]
-    )
+    const { system_prompt, temperature, model, api_key } = req.body
+    if (api_key !== undefined && api_key !== '••••••••••••••••••••••••••••••••••••••') {
+      await db.query(
+        'UPDATE ai_settings SET system_prompt=$1, temperature=$2, model=$3, api_key=$4, updated_at=NOW() WHERE id=1',
+        [system_prompt, temperature, model, api_key || null]
+      )
+    } else {
+      await db.query(
+        'UPDATE ai_settings SET system_prompt=$1, temperature=$2, model=$3, updated_at=NOW() WHERE id=1',
+        [system_prompt, temperature, model]
+      )
+    }
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
+  }
+})
+
+router.post('/settings/test-api', async (req, res) => {
+  try {
+    const { api_key } = req.body
+    let keyToTest = api_key
+    // if masked value sent, use the stored key
+    if (!api_key || api_key.includes('•')) {
+      const result = await db.query('SELECT api_key FROM ai_settings WHERE id=1')
+      keyToTest = result.rows[0]?.api_key || process.env.GEMINI_API_KEY
+    }
+    if (!keyToTest) return res.status(400).json({ error: 'لم يتم إدخال مفتاح API' })
+    const { GoogleGenerativeAI } = require('@google/generative-ai')
+    const testAI = new GoogleGenerativeAI(keyToTest)
+    const model = testAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+    const result = await model.generateContent('قل "مرحبا" فقط')
+    const text = result.response.text()
+    if (text) {
+      res.json({ success: true, message: 'مفتاح API صحيح ويعمل بشكل جيد ✓' })
+    } else {
+      res.status(400).json({ error: 'المفتاح لا يعمل بشكل صحيح' })
+    }
+  } catch (err) {
+    const msg = err.message || ''
+    if (msg.includes('API_KEY_INVALID') || msg.includes('API key not valid')) {
+      res.status(400).json({ error: 'مفتاح API غير صحيح' })
+    } else if (msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
+      res.status(400).json({ error: 'تم استنفاد حصة API' })
+    } else {
+      res.status(400).json({ error: 'فشل التحقق: ' + msg })
+    }
   }
 })
 

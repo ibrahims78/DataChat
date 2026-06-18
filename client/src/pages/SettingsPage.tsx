@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Users, BarChart3, Settings, User, Star, Plus, Trash2, Eye, EyeOff, Mail } from 'lucide-react'
+import { Users, BarChart3, Settings, User, Star, Plus, Trash2, Eye, EyeOff, Mail, CheckCircle, XCircle, Loader2, KeyRound } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useT } from '../i18n/translations'
 import { useAuth } from '../contexts/AuthContext'
@@ -13,7 +13,11 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('stats')
   const [stats, setStats] = useState<any>(null)
   const [users, setUsers] = useState<any[]>([])
-  const [aiSettings, setAiSettings] = useState<any>({ system_prompt: '', temperature: 0.7, model: 'gemini-1.5-flash' })
+  const [aiSettings, setAiSettings] = useState<any>({ system_prompt: '', temperature: 0.7, model: 'gemini-1.5-flash', api_key: '' })
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [apiKeyChanged, setApiKeyChanged] = useState(false)
+  const [testingApi, setTestingApi] = useState(false)
+  const [apiTestResult, setApiTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [ratings, setRatings] = useState<any[]>([])
   const [deleteUserTarget, setDeleteUserTarget] = useState<any>(null)
   const [showAddUser, setShowAddUser] = useState(false)
@@ -69,8 +73,22 @@ export default function SettingsPage() {
   const saveAI = async () => {
     try {
       await api.patch('/admin/settings', aiSettings)
+      setApiKeyChanged(false)
       toast.success('تم الحفظ')
     } catch { toast.error('فشل الحفظ') }
+  }
+
+  const testApiKey = async () => {
+    setTestingApi(true)
+    setApiTestResult(null)
+    try {
+      const r = await api.post('/admin/settings/test-api', { api_key: aiSettings.api_key })
+      setApiTestResult({ ok: true, msg: r.data.message })
+    } catch (err: any) {
+      setApiTestResult({ ok: false, msg: err.response?.data?.error || 'فشل التحقق' })
+    } finally {
+      setTestingApi(false)
+    }
   }
 
   const saveProfile = async () => {
@@ -205,6 +223,62 @@ export default function SettingsPage() {
       {tab === 'ai' && (
         <div className="card p-6 space-y-5">
           <h2 className="font-semibold text-[var(--text)]">{tr('aiSettings')}</h2>
+
+          {/* API Key */}
+          <div className="border border-[var(--border)] rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2 mb-1">
+              <KeyRound size={16} className="text-primary-600" />
+              <label className="text-sm font-semibold text-[var(--text)]">مفتاح Gemini API</label>
+              {aiSettings.has_api_key && !apiKeyChanged && (
+                <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">محفوظ</span>
+              )}
+            </div>
+            <div className="relative">
+              <input
+                className="input-field pe-20 font-mono text-sm"
+                type={showApiKey ? 'text' : 'password'}
+                placeholder="AIzaSy..."
+                value={aiSettings.api_key}
+                onChange={e => {
+                  setAiSettings((p: any) => ({ ...p, api_key: e.target.value }))
+                  setApiKeyChanged(true)
+                  setApiTestResult(null)
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="absolute end-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)] transition-colors"
+              >
+                {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={testApiKey}
+                disabled={testingApi || !aiSettings.api_key}
+                className="btn-ghost text-sm flex items-center gap-2 disabled:opacity-50"
+              >
+                {testingApi
+                  ? <><Loader2 size={14} className="animate-spin" /> جاري التحقق...</>
+                  : 'اختبار المفتاح'}
+              </button>
+              {apiTestResult && (
+                <div className={`flex items-center gap-1.5 text-sm font-medium ${apiTestResult.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {apiTestResult.ok
+                    ? <CheckCircle size={15} />
+                    : <XCircle size={15} />}
+                  {apiTestResult.msg}
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-[var(--muted)]">
+              احصل على مفتاحك من{' '}
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">Google AI Studio</a>.
+              إذا تُرك فارغاً سيُستخدم المفتاح المضبوط في البيئة.
+            </p>
+          </div>
+
           <div>
             <label className="block text-sm font-semibold text-[var(--text)] mb-2">نموذج Gemini</label>
             <select className="input-field" value={aiSettings.model} onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}>

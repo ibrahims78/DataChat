@@ -90,8 +90,11 @@ CREATE TABLE IF NOT EXISTS ai_settings (
   system_prompt TEXT DEFAULT 'أنت مساعد ذكي متخصص في تحليل البيانات. تحلّل الملفات وتجيب على الأسئلة بدقة باللغة التي يستخدمها المستخدم.',
   temperature DECIMAL(3,2) DEFAULT 0.70,
   model VARCHAR(100) DEFAULT 'gemini-1.5-flash',
+  api_key TEXT DEFAULT NULL,
   updated_at TIMESTAMP DEFAULT NOW()
 );
+
+ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS api_key TEXT DEFAULT NULL;
 
 INSERT INTO ai_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
 
