@@ -113,7 +113,27 @@ router.post('/:projectId/message', async (req, res) => {
 
     const basePrompt = aiConfig.system_prompt ||
       'أنت مساعد ذكي متخصص في تحليل البيانات. تحلّل الملفات وتجيب على الأسئلة بدقة باللغة التي يستخدمها المستخدم.'
-    const systemText = basePrompt + (fileContents ? `\n\nالملفات المتاحة للتحليل:\n${fileContents}` : '')
+
+    const fileGenInstructions = `
+## قدرات إنشاء الملفات
+أنت تمتلك القدرة الكاملة على إنشاء ملفات Excel وPDF وCSV بشكل حقيقي.
+عندما يطلب المستخدم إنشاء ملف أو تصدير بيانات، قم بما يلي:
+1. أجب على المستخدم بشكل طبيعي وأخبره أنك ستنشئ الملف.
+2. في نهاية ردك، أضف أمر إنشاء الملف بالصيغة التالية بدقة:
+
+لملف Excel:
+[EXCEL_FILE]{"filename":"اسم_الملف","sheets":[{"name":"اسم الورقة","headers":["عمود1","عمود2","عمود3"],"rows":[["قيمة1","قيمة2","قيمة3"],["قيمة4","قيمة5","قيمة6"]]}]}[/EXCEL_FILE]
+
+لملف PDF:
+[PDF_FILE]{"filename":"اسم_الملف","title":"عنوان التقرير","content":"محتوى التقرير كاملاً هنا"}[/PDF_FILE]
+
+قواعد مهمة:
+- استخدم البيانات الفعلية من الملفات المرفوعة وليس بيانات وهمية.
+- يجب أن يكون JSON صحيحاً تماماً بدون أخطاء.
+- لا تُخبر المستخدم أنك لا تستطيع إنشاء الملفات، أنت تستطيع ذلك دائماً.
+- اكتب أمر الملف في نهاية ردك فقط، بعد الشرح النصي.`
+
+    const systemText = basePrompt + fileGenInstructions + (fileContents ? `\n\n## الملفات المتاحة للتحليل:\n${fileContents}` : '')
 
     const selectedModel = aiConfig.model || 'gemini-2.5-flash'
     const genAI = getGenAI(aiConfig.api_key)
@@ -149,23 +169,79 @@ router.post('/:projectId/message', async (req, res) => {
       res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
     }
 
+    // Parse file generation commands from AI response
+    const excelMatch = fullResponse.match(/\[EXCEL_FILE\]([\s\S]*?)\[\/EXCEL_FILE\]/)
+    const pdfMatch = fullResponse.match(/\[PDF_FILE\]([\s\S]*?)\[\/PDF_FILE\]/)
+
+    // Strip command tags from the visible message
+    let cleanResponse = fullResponse
+      .replace(/\[EXCEL_FILE\][\s\S]*?\[\/EXCEL_FILE\]/g, '')
+      .replace(/\[PDF_FILE\][\s\S]*?\[\/PDF_FILE\]/g, '')
+      .trim()
+
+    // If content was stripped, notify client to update displayed text
+    if (cleanResponse !== fullResponse) {
+      res.write(`data: ${JSON.stringify({ type: 'update_content', content: cleanResponse })}\n\n`)
+    }
+
     const aiMsgResult = await db.query(
       'INSERT INTO messages (conversation_id, role, content) VALUES ($1,$2,$3) RETURNING id',
-      [conversationId, 'assistant', fullResponse]
+      [conversationId, 'assistant', cleanResponse]
     )
 
     let generatedFile = null
-    const lowerResponse = fullResponse.toLowerCase()
-    if (lowerResponse.includes('excel') || lowerResponse.includes('.xlsx')) {
+
+    if (excelMatch) {
       try {
-        const excelData = { headers: ['العمود 1', 'العمود 2', 'العمود 3'], rows: [['بيانات', 'بيانات', 'بيانات']] }
-        const ef = await generateExcelFile(excelData, 'تقرير_' + Date.now())
+        const excelData = JSON.parse(excelMatch[1].trim())
+        const filename = excelData.filename || ('تقرير_' + Date.now())
+        let ef
+        if (excelData.sheets && excelData.sheets.length > 0) {
+          // Multi-sheet format
+          const wb = new ExcelJS.Workbook()
+          for (const sheet of excelData.sheets) {
+            const ws = wb.addWorksheet(sheet.name || 'ورقة 1')
+            if (sheet.headers && sheet.headers.length) {
+              const headerRow = ws.addRow(sheet.headers)
+              headerRow.eachCell(cell => {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }
+                cell.font = { color: { argb: 'FFFFFFFF' }, bold: true }
+                cell.alignment = { horizontal: 'center' }
+              })
+            }
+            if (sheet.rows) sheet.rows.forEach(row => ws.addRow(row))
+            ws.columns.forEach(col => { col.width = 20 })
+          }
+          const genDir = path.join(__dirname, '../../../uploads/generated')
+          if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true })
+          const storedName = `${Date.now()}-${filename}.xlsx`
+          await wb.xlsx.writeFile(path.join(genDir, storedName))
+          ef = { storedName, originalName: `${filename}.xlsx` }
+        } else {
+          // Legacy flat format
+          const flatData = { headers: excelData.headers || [], rows: excelData.rows || [] }
+          ef = await generateExcelFile(flatData, filename)
+        }
         const gf = await db.query(
           'INSERT INTO generated_files (project_id, message_id, original_name, stored_name, file_type) VALUES ($1,$2,$3,$4,$5) RETURNING *',
           [req.params.projectId, aiMsgResult.rows[0].id, ef.originalName, ef.storedName, 'excel']
         )
         generatedFile = gf.rows[0]
-      } catch {}
+      } catch (e) { console.error('Excel generation error:', e.message) }
+    } else if (pdfMatch) {
+      try {
+        const pdfData = JSON.parse(pdfMatch[1].trim())
+        const filename = pdfData.filename || ('تقرير_' + Date.now())
+        const pf = await generatePDFFile(
+          (pdfData.title ? pdfData.title + '\n\n' : '') + (pdfData.content || ''),
+          filename
+        )
+        const gf = await db.query(
+          'INSERT INTO generated_files (project_id, message_id, original_name, stored_name, file_type) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+          [req.params.projectId, aiMsgResult.rows[0].id, pf.originalName, pf.storedName, 'pdf']
+        )
+        generatedFile = gf.rows[0]
+      } catch (e) { console.error('PDF generation error:', e.message) }
     }
 
     await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [req.params.projectId])

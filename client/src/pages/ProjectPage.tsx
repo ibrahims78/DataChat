@@ -84,9 +84,14 @@ export default function ProjectPage() {
             if (data.type === 'text') {
               fullText += data.content
               setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: fullText } : m))
+            } else if (data.type === 'update_content') {
+              // Replace displayed text with clean version (tags stripped)
+              fullText = data.content
+              setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: fullText } : m))
             } else if (data.type === 'done') {
               if (data.generatedFile) {
                 setProject(p => p ? { ...p, generated_files: [...p.generated_files, data.generatedFile] } : p)
+                toast.success('تم إنشاء الملف بنجاح! 📁')
               }
               if (data.messageId) {
                 setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, id: data.messageId } : m))
