@@ -175,10 +175,18 @@ async function generateExcelFile(data, filename) {
 
 const NOTO_FONT  = path.join(__dirname, '../../assets/fonts/NotoNaskhArabic-Regular.ttf')
 
+// Strip invisible Unicode control characters that have no glyph in Arabic fonts
+// (causes □ rectangles between words in PDFKit)
+function cleanArabicText(text) {
+  return (text || '')
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]/g, '')
+    .replace(/\r/g, '')
+}
+
 // Generate a real PDF with proper Arabic rendering using Noto Naskh Arabic font
 async function generatePDFFile(pdfData, filename) {
-  const title   = (typeof pdfData === 'string' ? '' : pdfData.title)  || filename
-  const content = (typeof pdfData === 'string' ? pdfData : pdfData.content) || ''
+  const title   = cleanArabicText((typeof pdfData === 'string' ? '' : pdfData.title)  || filename)
+  const content = cleanArabicText((typeof pdfData === 'string' ? pdfData : pdfData.content) || '')
   const dateStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' })
 
   const genDir = path.join(__dirname, '../../../uploads/generated')
@@ -594,12 +602,11 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
     } else if (pdfMatch) {
       try {
         const pdfData = repairJSON(pdfMatch[1].trim())
-        const filename = pdfData.filename || ('تقرير_' + Date.now())
-        // Use Excel-based report generation for full Arabic RTL support (no rectangles)
-        const pf = await generateReportAsExcel(pdfData, filename)
+        const filename = (pdfData.filename || ('تقرير_' + Date.now())).replace(/\.pdf$/i, '')
+        const pf = await generatePDFFile(pdfData, filename)
         const gf = await db.query(
           'INSERT INTO generated_files (project_id, message_id, original_name, stored_name, file_type, file_size) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-          [req.params.projectId, aiMsgResult.rows[0].id, pf.originalName, pf.storedName, 'excel', pf.fileSize || null]
+          [req.params.projectId, aiMsgResult.rows[0].id, pf.originalName, pf.storedName, 'pdf', pf.fileSize || null]
         )
         generatedFile = gf.rows[0]
       } catch (e) { console.error('PDF generation error:', e.message, e.stack) }
