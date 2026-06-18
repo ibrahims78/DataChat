@@ -106,9 +106,11 @@ export default function FilePanel({ files, generatedFiles, projectId, onFileDele
                   <p className="text-xs font-medium text-[var(--text)] truncate">{f.original_name}</p>
                 </div>
                 <a href={`/api/files/generated/${f.id}/download`}
-                  className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors opacity-0 group-hover:opacity-100"
+                  className="flex items-center gap-1 px-2 py-1 rounded-md bg-primary-600 hover:bg-primary-700 text-white text-xs font-medium transition-colors shrink-0"
+                  title="تحميل الملف"
                   onClick={e => e.stopPropagation()}>
-                  <Download size={12} />
+                  <Download size={11} />
+                  <span>تحميل</span>
                 </a>
               </div>
             ))}

@@ -91,7 +91,7 @@ export default function ProjectPage() {
             } else if (data.type === 'done') {
               if (data.generatedFile) {
                 setProject(p => p ? { ...p, generated_files: [...p.generated_files, data.generatedFile] } : p)
-                toast.success('تم إنشاء الملف بنجاح! 📁')
+                toast.success('✅ الملف جاهز للتحميل — راجع قسم "النتائج المُولَّدة" في لوحة الملفات', { duration: 5000 })
               }
               if (data.messageId) {
                 setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, id: data.messageId } : m))
