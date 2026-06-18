@@ -14,8 +14,31 @@ const { authenticate } = require('../middleware/auth')
 const router = express.Router()
 router.use(authenticate)
 
+// Escape literal control characters that appear inside JSON string values
+// (AI sometimes emits real newlines/tabs inside JSON strings instead of \n \t)
+function sanitizeJSONControlChars(raw) {
+  const ESC = { '\n': '\\n', '\r': '\\r', '\t': '\\t', '\f': '\\f', '\b': '\\b' }
+  let out = ''
+  let inStr = false
+  let esc = false
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]
+    if (esc) { out += ch; esc = false; continue }
+    if (ch === '\\' && inStr) { out += ch; esc = true; continue }
+    if (ch === '"') { inStr = !inStr; out += ch; continue }
+    if (inStr && ch.charCodeAt(0) < 0x20) {
+      out += ESC[ch] || `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`
+    } else {
+      out += ch
+    }
+  }
+  return out
+}
+
 // Repair truncated/malformed JSON from AI responses
 function repairJSON(raw) {
+  // Step 1: escape any literal control chars inside string values
+  raw = sanitizeJSONControlChars(raw)
   try {
     return JSON.parse(raw)
   } catch (e) {
@@ -29,7 +52,6 @@ function repairJSON(raw) {
       }
       if (lastGoodEnd > 0) {
         const truncated = raw.substring(0, lastGoodEnd)
-        // Close: rows array ] + sheet object } + sheets array ] + root object }
         const attempts = [
           truncated + ']}]}',
           truncated + ']}',
@@ -39,7 +61,7 @@ function repairJSON(raw) {
           try { return JSON.parse(attempt) } catch {}
         }
       }
-      // Last resort: add closing brackets based on open count
+      // Last resort: count open brackets and close them
       let opens = { brace: 0, bracket: 0 }
       let inStr = false, esc = false
       for (const ch of raw) {
