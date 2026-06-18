@@ -69,6 +69,139 @@ async function getFilePreview(filePath, fileType) {
   }
 }
 
+// ─── Generated file routes (must come before /:projectId routes) ───────────
+
+router.get('/generated/:fileId/download', async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM generated_files WHERE id=$1', [req.params.fileId])
+    if (!result.rows.length) return res.status(404).json({ error: 'File not found' })
+    const file = result.rows[0]
+    const filePath = path.join(__dirname, '../../../uploads/generated', file.stored_name)
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' })
+    res.download(filePath, file.display_name || file.original_name)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.delete('/generated/:fileId', async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM generated_files WHERE id=$1', [req.params.fileId])
+    if (!result.rows.length) return res.status(404).json({ error: 'File not found' })
+    const file = result.rows[0]
+    // Verify ownership via project
+    const proj = await db.query('SELECT * FROM projects WHERE id=$1', [file.project_id])
+    if (proj.rows.length && req.user.role !== 'admin' && proj.rows[0].user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+    const filePath = path.join(__dirname, '../../../uploads/generated', file.stored_name)
+    if (fs.existsSync(filePath)) fs.unlink(filePath, () => {})
+    await db.query('DELETE FROM generated_files WHERE id=$1', [req.params.fileId])
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.patch('/generated/:fileId/rename', async (req, res) => {
+  try {
+    const { name } = req.body
+    if (!name?.trim()) return res.status(400).json({ error: 'Name required' })
+    const result = await db.query(
+      'UPDATE generated_files SET display_name=$1 WHERE id=$2 RETURNING *',
+      [name.trim(), req.params.fileId]
+    )
+    if (!result.rows.length) return res.status(404).json({ error: 'File not found' })
+    res.json({ file: result.rows[0] })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── Folder routes (must come before /:projectId/:fileId routes) ────────────
+
+router.post('/:projectId/folders', async (req, res) => {
+  try {
+    const { name } = req.body
+    if (!name?.trim()) return res.status(400).json({ error: 'Folder name required' })
+    const projectCheck = await db.query('SELECT * FROM projects WHERE id=$1', [req.params.projectId])
+    if (!projectCheck.rows.length) return res.status(404).json({ error: 'Project not found' })
+    if (req.user.role !== 'admin' && projectCheck.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
+    const maxOrder = await db.query('SELECT COALESCE(MAX(sort_order),0) as m FROM folders WHERE project_id=$1', [req.params.projectId])
+    const result = await db.query(
+      'INSERT INTO folders (project_id, name, sort_order) VALUES ($1,$2,$3) RETURNING *',
+      [req.params.projectId, name.trim(), parseInt(maxOrder.rows[0].m) + 1]
+    )
+    res.json({ folder: result.rows[0] })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.patch('/:projectId/folders/:folderId', async (req, res) => {
+  try {
+    const { name } = req.body
+    if (!name?.trim()) return res.status(400).json({ error: 'Folder name required' })
+    const result = await db.query(
+      'UPDATE folders SET name=$1 WHERE id=$2 AND project_id=$3 RETURNING *',
+      [name.trim(), req.params.folderId, req.params.projectId]
+    )
+    if (!result.rows.length) return res.status(404).json({ error: 'Folder not found' })
+    res.json({ folder: result.rows[0] })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.delete('/:projectId/folders/:folderId', async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM folders WHERE id=$1 AND project_id=$2', [req.params.folderId, req.params.projectId])
+    if (!result.rows.length) return res.status(404).json({ error: 'Folder not found' })
+    // Move files in this folder to uncategorized
+    await db.query('UPDATE files SET folder_id=NULL WHERE folder_id=$1', [req.params.folderId])
+    await db.query('DELETE FROM folders WHERE id=$1', [req.params.folderId])
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── Reorder routes (must come before /:projectId/:fileId) ──────────────────
+
+router.patch('/:projectId/reorder', async (req, res) => {
+  try {
+    const { items } = req.body // [{id, sort_order, folder_id}]
+    if (!Array.isArray(items)) return res.status(400).json({ error: 'items array required' })
+    await Promise.all(items.map(item =>
+      db.query(
+        'UPDATE files SET sort_order=$1, folder_id=$2 WHERE id=$3 AND project_id=$4',
+        [item.sort_order, item.folder_id ?? null, item.id, req.params.projectId]
+      )
+    ))
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.patch('/:projectId/reorder-generated', async (req, res) => {
+  try {
+    const { items } = req.body // [{id, sort_order}]
+    if (!Array.isArray(items)) return res.status(400).json({ error: 'items array required' })
+    await Promise.all(items.map(item =>
+      db.query(
+        'UPDATE generated_files SET sort_order=$1 WHERE id=$2 AND project_id=$3',
+        [item.sort_order, item.id, req.params.projectId]
+      )
+    ))
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── Upload (must come before /:projectId/:fileId) ───────────────────────────
+
 router.post('/:projectId', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
@@ -79,9 +212,10 @@ router.post('/:projectId', upload.single('file'), async (req, res) => {
     if (parseInt(countCheck.rows[0].count) >= 10) return res.status(400).json({ error: 'Maximum 10 files per project' })
     const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8')
     const fileType = getFileType(originalName)
+    const maxOrder = await db.query('SELECT COALESCE(MAX(sort_order),0) as m FROM files WHERE project_id=$1', [req.params.projectId])
     const result = await db.query(
-      'INSERT INTO files (project_id, original_name, stored_name, file_type, file_size, mime_type) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [req.params.projectId, originalName, req.file.filename, fileType, req.file.size, req.file.mimetype]
+      'INSERT INTO files (project_id, original_name, stored_name, file_type, file_size, mime_type, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+      [req.params.projectId, originalName, req.file.filename, fileType, req.file.size, req.file.mimetype, parseInt(maxOrder.rows[0].m) + 1]
     )
     await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [req.params.projectId])
     const preview = await getFilePreview(req.file.path, fileType)
@@ -91,6 +225,8 @@ router.post('/:projectId', upload.single('file'), async (req, res) => {
     res.status(500).json({ error: err.message })
   }
 })
+
+// ─── Per-file routes ─────────────────────────────────────────────────────────
 
 router.get('/:projectId/:fileId/preview', async (req, res) => {
   try {
@@ -105,6 +241,21 @@ router.get('/:projectId/:fileId/preview', async (req, res) => {
   }
 })
 
+router.patch('/:projectId/:fileId/rename', async (req, res) => {
+  try {
+    const { name } = req.body
+    if (!name?.trim()) return res.status(400).json({ error: 'Name required' })
+    const result = await db.query(
+      'UPDATE files SET display_name=$1 WHERE id=$2 AND project_id=$3 RETURNING *',
+      [name.trim(), req.params.fileId, req.params.projectId]
+    )
+    if (!result.rows.length) return res.status(404).json({ error: 'File not found' })
+    res.json({ file: result.rows[0] })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 router.delete('/:projectId/:fileId', async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM files WHERE id=$1 AND project_id=$2', [req.params.fileId, req.params.projectId])
@@ -113,19 +264,6 @@ router.delete('/:projectId/:fileId', async (req, res) => {
     if (fs.existsSync(filePath)) fs.unlink(filePath, () => {})
     await db.query('DELETE FROM files WHERE id=$1', [req.params.fileId])
     res.json({ success: true })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-router.get('/generated/:fileId/download', async (req, res) => {
-  try {
-    const result = await db.query('SELECT * FROM generated_files WHERE id=$1', [req.params.fileId])
-    if (!result.rows.length) return res.status(404).json({ error: 'File not found' })
-    const file = result.rows[0]
-    const filePath = path.join(__dirname, '../../../uploads/generated', file.stored_name)
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' })
-    res.download(filePath, file.original_name)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

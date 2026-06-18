@@ -12,7 +12,7 @@ import FileUploadModal from '../components/files/FileUploadModal'
 
 interface Project {
   id: number; name: string; user_id: number
-  files: any[]; messages: any[]; generated_files: any[]
+  files: any[]; messages: any[]; generated_files: any[]; folders: any[]
   conversation_id: number; file_count: number; message_count: number
 }
 
@@ -212,8 +212,9 @@ export default function ProjectPage() {
         <FilePanel
           files={project.files}
           generatedFiles={project.generated_files}
+          folders={project.folders || []}
           projectId={project.id}
-          onFileDeleted={fetchProject}
+          onRefresh={fetchProject}
           onUpload={() => setShowUpload(true)}
         />
       </div>

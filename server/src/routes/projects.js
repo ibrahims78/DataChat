@@ -71,15 +71,25 @@ router.get('/:id', async (req, res) => {
     if (req.user.role !== 'admin' && project.user_id !== req.user.id) {
       return res.status(403).json({ error: 'Forbidden' })
     }
-    const files = await db.query('SELECT * FROM files WHERE project_id = $1 ORDER BY created_at', [req.params.id])
-    const conv = await db.query('SELECT id FROM conversations WHERE project_id = $1 LIMIT 1', [req.params.id])
+    const [filesResult, convResult, genFilesResult, foldersResult] = await Promise.all([
+      db.query('SELECT * FROM files WHERE project_id = $1 ORDER BY sort_order ASC, created_at ASC', [req.params.id]),
+      db.query('SELECT id FROM conversations WHERE project_id = $1 LIMIT 1', [req.params.id]),
+      db.query('SELECT * FROM generated_files WHERE project_id = $1 ORDER BY sort_order ASC, created_at DESC', [req.params.id]),
+      db.query('SELECT * FROM folders WHERE project_id = $1 ORDER BY sort_order ASC, created_at ASC', [req.params.id])
+    ])
     let messages = []
-    if (conv.rows.length) {
-      const msgs = await db.query('SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at', [conv.rows[0].id])
+    if (convResult.rows.length) {
+      const msgs = await db.query('SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at', [convResult.rows[0].id])
       messages = msgs.rows
     }
-    const genFiles = await db.query('SELECT * FROM generated_files WHERE project_id = $1 ORDER BY created_at DESC', [req.params.id])
-    res.json({ ...project, files: files.rows, messages, generated_files: genFiles.rows, conversation_id: conv.rows[0]?.id })
+    res.json({
+      ...project,
+      files: filesResult.rows,
+      messages,
+      generated_files: genFilesResult.rows,
+      folders: foldersResult.rows,
+      conversation_id: convResult.rows[0]?.id
+    })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

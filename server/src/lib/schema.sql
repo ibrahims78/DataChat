@@ -84,6 +84,15 @@ CREATE TABLE IF NOT EXISTS invite_tokens (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Folders table (must be before files.folder_id FK)
+CREATE TABLE IF NOT EXISTS folders (
+  id SERIAL PRIMARY KEY,
+  project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
 -- AI settings
 CREATE TABLE IF NOT EXISTS ai_settings (
   id SERIAL PRIMARY KEY,
@@ -96,6 +105,14 @@ CREATE TABLE IF NOT EXISTS ai_settings (
 
 ALTER TABLE ai_settings ADD COLUMN IF NOT EXISTS api_key TEXT DEFAULT NULL;
 
+-- File management columns
+ALTER TABLE files ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS display_name VARCHAR(500);
+ALTER TABLE files ADD COLUMN IF NOT EXISTS folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL;
+
+ALTER TABLE generated_files ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
+ALTER TABLE generated_files ADD COLUMN IF NOT EXISTS display_name VARCHAR(500);
+
 INSERT INTO ai_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
 
 -- Indexes
@@ -104,3 +121,4 @@ CREATE INDEX IF NOT EXISTS idx_files_project_id ON files(project_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_project_id ON conversations(project_id);
 CREATE INDEX IF NOT EXISTS idx_generated_files_project_id ON generated_files(project_id);
+CREATE INDEX IF NOT EXISTS idx_folders_project_id ON folders(project_id);
