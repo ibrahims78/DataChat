@@ -290,9 +290,15 @@ export default function SettingsPage() {
           </div>
           <div>
             <label className="block text-sm font-semibold text-[var(--text)] mb-2">{tr('systemPrompt')}</label>
-            <textarea className="input-field" rows={5} value={aiSettings.system_prompt}
+            <textarea className="input-field" rows={7} value={aiSettings.system_prompt}
               onChange={e => setAiSettings((p: any) => ({ ...p, system_prompt: e.target.value }))}
               placeholder="أنت مساعد ذكي متخصص في تحليل البيانات..." />
+            <div className="mt-2 flex items-start gap-2 bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg px-3 py-2">
+              <span className="text-primary-600 mt-0.5 shrink-0">ℹ️</span>
+              <p className="text-xs text-primary-700 dark:text-primary-300">
+                تعليمات إنشاء الملفات (Excel وPDF) تُضاف تلقائياً من النظام ولا تحتاج لكتابتها هنا. هذا الحقل للتخصيص الإضافي فقط.
+              </p>
+            </div>
           </div>
           <div>
             <label className="block text-sm font-semibold text-[var(--text)] mb-2">
