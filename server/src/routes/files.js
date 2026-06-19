@@ -41,18 +41,26 @@ function getFileType(filename) {
   return map[ext] || 'unknown'
 }
 
+const LARGE_FILE_THRESHOLD = 15 * 1024 * 1024 // 15 MB
+
 async function getFilePreview(filePath, fileType) {
   try {
+    const fileStat = fs.statSync(filePath)
+    const isLarge = fileStat.size > LARGE_FILE_THRESHOLD
+
     if (fileType === 'excel') {
+      if (isLarge) return { type: 'text', text: 'ملف Excel كبير — سيتم تحليله عند بدء المحادثة.', totalRows: null, totalCols: null }
       const wb = XLSX.readFile(filePath)
       const ws = wb.Sheets[wb.SheetNames[0]]
+      if (!ws || !ws['!ref']) return { type: 'table', headers: [], rows: [], totalRows: 0, totalCols: 0 }
       const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
       const headers = data[0] || []
       const rows = data.slice(1, 6)
-      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
+      const range = XLSX.utils.decode_range(ws['!ref'])
       return { type: 'table', headers, rows, totalRows: range.e.r, totalCols: range.e.c + 1 }
     }
     if (fileType === 'csv') {
+      if (isLarge) return { type: 'text', text: 'ملف CSV كبير — سيتم تحليله عند بدء المحادثة.', totalRows: null, totalCols: null }
       const content = fs.readFileSync(filePath, 'utf8')
       const records = parse(content, { skip_empty_lines: true })
       const headers = records[0] || []
@@ -60,10 +68,7 @@ async function getFilePreview(filePath, fileType) {
       return { type: 'table', headers, rows, totalRows: records.length - 1, totalCols: headers.length }
     }
     if (fileType === 'pdf') {
-      const fileStat = fs.statSync(filePath)
-      if (fileStat.size > 15 * 1024 * 1024) {
-        return { type: 'text', text: 'ملف PDF كبير — سيتم تحليله عند بدء المحادثة.', totalPages: null }
-      }
+      if (isLarge) return { type: 'text', text: 'ملف PDF كبير — سيتم تحليله عند بدء المحادثة.', totalPages: null }
       const buf = fs.readFileSync(filePath)
       const data = await Promise.race([
         pdfParse(buf),
@@ -72,14 +77,17 @@ async function getFilePreview(filePath, fileType) {
       return { type: 'text', text: data.text.substring(0, 500), totalPages: data.numpages }
     }
     if (fileType === 'word') {
+      if (isLarge) return { type: 'text', text: 'ملف Word كبير — سيتم تحليله عند بدء المحادثة.' }
       const result = await mammoth.extractRawText({ path: filePath })
       return { type: 'text', text: result.value.substring(0, 500) }
     }
     if (fileType === 'markdown' || fileType === 'text') {
+      if (isLarge) return { type: fileType === 'markdown' ? 'markdown' : 'text', text: 'ملف نصي كبير — سيتم تحليله عند بدء المحادثة.' }
       const content = fs.readFileSync(filePath, 'utf8')
       return { type: fileType === 'markdown' ? 'markdown' : 'text', text: content.substring(0, 1000) }
     }
     if (fileType === 'json') {
+      if (isLarge) return { type: 'json', text: 'ملف JSON كبير — سيتم تحليله عند بدء المحادثة.' }
       const content = fs.readFileSync(filePath, 'utf8')
       try {
         const parsed = JSON.parse(content)
