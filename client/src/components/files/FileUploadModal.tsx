@@ -45,6 +45,8 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
       'application/pdf': ['.pdf'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/msword': ['.doc'],
+      'text/markdown': ['.md'],
+      'text/plain': ['.txt'],
     }
   })
 

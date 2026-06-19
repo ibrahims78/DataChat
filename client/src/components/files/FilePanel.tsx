@@ -29,8 +29,8 @@ interface Props {
   onUpload: () => void
 }
 
-const typeIcons: Record<string, string> = { excel: '📊', csv: '📋', pdf: '📄', word: '📝', html: '🌐' }
-const genTypeIcons: Record<string, string> = { excel: '📊', pdf: '📄', html: '🌐' }
+const typeIcons: Record<string, string> = { excel: '📊', csv: '📋', pdf: '📄', word: '📝', html: '🌐', markdown: '📑', text: '📃' }
+const genTypeIcons: Record<string, string> = { excel: '📊', pdf: '📄', html: '🌐', markdown: '📑', text: '📃' }
 
 function formatSize(bytes: number) {
   if (!bytes) return ''
@@ -320,6 +320,17 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
               className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="فتح في Excel">
               <Download size={11} />
             </button>
+          ) : (f.file_type === 'markdown' || f.file_type === 'text') ? (
+            <>
+              <button onClick={() => showPreview(f)}
+                className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="معاينة">
+                <Eye size={11} />
+              </button>
+              <button onClick={() => downloadFile(f)}
+                className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="تحميل">
+                <Download size={11} />
+              </button>
+            </>
           ) : (
             <button onClick={() => showPreview(f)}
               className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="معاينة">
@@ -605,6 +616,13 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
                   {preview.totalPages && <p className="text-xs text-[var(--muted)] mb-2">{preview.totalPages} {tr('pages')}</p>}
                   <p className="text-sm text-[var(--text)] whitespace-pre-wrap leading-relaxed bg-[var(--bg)] rounded-lg p-4">{preview.text}...</p>
                 </div>
+              ) : preview.type === 'markdown' ? (
+                <div>
+                  <p className="text-xs text-[var(--muted)] mb-2">معاينة Markdown</p>
+                  <pre className="text-sm text-[var(--text)] whitespace-pre-wrap leading-relaxed bg-[var(--bg)] rounded-lg p-4 font-mono overflow-x-auto">{preview.text}{preview.text?.length >= 1000 ? '...' : ''}</pre>
+                </div>
+              ) : preview.type === 'error' ? (
+                <p className="text-red-500 text-sm">{preview.message}</p>
               ) : (
                 <p className="text-red-500 text-sm">{preview.message}</p>
               )}

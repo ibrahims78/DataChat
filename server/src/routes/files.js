@@ -24,7 +24,7 @@ const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc']
+    const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc', '.md', '.txt']
     const ext = path.extname(file.originalname).toLowerCase()
     if (allowed.includes(ext)) cb(null, true)
     else cb(new Error('File type not supported'))
@@ -33,7 +33,11 @@ const upload = multer({
 
 function getFileType(filename) {
   const ext = path.extname(filename).toLowerCase()
-  const map = { '.xlsx': 'excel', '.xlsm': 'excel', '.xls': 'excel', '.csv': 'csv', '.pdf': 'pdf', '.docx': 'word', '.doc': 'word' }
+  const map = {
+    '.xlsx': 'excel', '.xlsm': 'excel', '.xls': 'excel',
+    '.csv': 'csv', '.pdf': 'pdf', '.docx': 'word', '.doc': 'word',
+    '.md': 'markdown', '.txt': 'text'
+  }
   return map[ext] || 'unknown'
 }
 
@@ -63,6 +67,10 @@ async function getFilePreview(filePath, fileType) {
     if (fileType === 'word') {
       const result = await mammoth.extractRawText({ path: filePath })
       return { type: 'text', text: result.value.substring(0, 500) }
+    }
+    if (fileType === 'markdown' || fileType === 'text') {
+      const content = fs.readFileSync(filePath, 'utf8')
+      return { type: fileType === 'markdown' ? 'markdown' : 'text', text: content.substring(0, 1000) }
     }
   } catch (e) {
     return { type: 'error', message: e.message }
