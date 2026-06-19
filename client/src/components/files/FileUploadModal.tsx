@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, X, CheckCircle, AlertCircle } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
@@ -13,6 +13,16 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
   const [progress, setProgress] = useState<string>('')
   const { lang } = useTheme()
   const tr = useT(lang)
+
+  useEffect(() => {
+    if (!uploading) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = 'جاري رفع الملف، هل أنت متأكد من المغادرة؟'
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [uploading])
 
   const onDrop = useCallback(async (accepted: File[]) => {
     if (!accepted.length) return
@@ -52,11 +62,11 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
   })
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={uploading ? undefined : onClose}>
       <div className="card p-6 w-full max-w-md animate-fade-in" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-bold text-lg text-[var(--text)]">{tr('uploadFile')}</h2>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)]"><X size={18} /></button>
+          <button onClick={uploading ? undefined : onClose} disabled={uploading} className="p-2 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] disabled:opacity-40 disabled:cursor-not-allowed"><X size={18} /></button>
         </div>
 
         <div {...getRootProps()} className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all
@@ -66,6 +76,7 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
             <div className="space-y-3">
               <div className="animate-spin w-10 h-10 border-4 border-primary-600 border-t-transparent rounded-full mx-auto" />
               <p className="text-sm font-semibold text-primary-600">{progress}</p>
+              <p className="text-xs text-[var(--muted)]">لا تغلق الصفحة أو تحدّثها أثناء الرفع</p>
             </div>
           ) : isDragActive ? (
             <div>

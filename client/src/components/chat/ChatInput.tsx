@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Send, Paperclip } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useT } from '../../i18n/translations'
@@ -19,6 +19,16 @@ export default function ChatInput({ onSend, disabled, projectId, onFileUploaded 
   const { lang } = useTheme()
   const tr = useT(lang)
   const [uploading, setUploading] = useState(false)
+
+  useEffect(() => {
+    if (!uploading) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = 'جاري رفع الملف، هل أنت متأكد من المغادرة؟'
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [uploading])
 
   const handleSend = () => {
     const trimmed = text.trim()
@@ -63,6 +73,11 @@ export default function ChatInput({ onSend, disabled, projectId, onFileUploaded 
       {isDragActive && (
         <div className="text-center text-primary-600 text-sm py-2 font-semibold animate-fade-in">
           📎 أفلت الملف هنا للرفع
+        </div>
+      )}
+      {uploading && (
+        <div className="text-center text-xs text-[var(--muted)] py-1 animate-fade-in">
+          ⏳ جاري رفع الملف... لا تحدّث الصفحة
         </div>
       )}
       <div className="flex items-end gap-3 bg-[var(--bg)] rounded-2xl border border-[var(--border)] px-4 py-2 focus-within:border-primary-400 transition-colors">
