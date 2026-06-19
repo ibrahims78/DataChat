@@ -60,8 +60,15 @@ async function getFilePreview(filePath, fileType) {
       return { type: 'table', headers, rows, totalRows: records.length - 1, totalCols: headers.length }
     }
     if (fileType === 'pdf') {
+      const fileStat = fs.statSync(filePath)
+      if (fileStat.size > 15 * 1024 * 1024) {
+        return { type: 'text', text: 'ملف PDF كبير — سيتم تحليله عند بدء المحادثة.', totalPages: null }
+      }
       const buf = fs.readFileSync(filePath)
-      const data = await pdfParse(buf)
+      const data = await Promise.race([
+        pdfParse(buf),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('PDF parse timeout')), 15000))
+      ])
       return { type: 'text', text: data.text.substring(0, 500), totalPages: data.numpages }
     }
     if (fileType === 'word') {
