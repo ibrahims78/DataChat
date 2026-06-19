@@ -217,20 +217,29 @@ function generateTXTFile(content, filename) {
   return { storedName, originalName: `${filename}.txt`, fileSize: fs.statSync(filePath).size }
 }
 
-const NOTO_FONT  = path.join(__dirname, '../../assets/fonts/NotoNaskhArabic-Regular.ttf')
+// Amiri covers Arabic + full Latin + common symbols → no rectangles
+const AMIRI_REGULAR = path.join(__dirname, '../../assets/fonts/Amiri-Regular.ttf')
+const AMIRI_BOLD    = path.join(__dirname, '../../assets/fonts/Amiri-Bold.ttf')
 
-// Strip invisible Unicode control characters that have no glyph in Arabic fonts
-// (causes □ rectangles between words in PDFKit)
+// Normalise text so every codepoint is guaranteed to be in Amiri.
+// Amiri covers Arabic, Latin-1, and most common Unicode symbols.
+// We only need to map the tiny set of chars that fall outside its coverage.
 function cleanArabicText(text) {
   return (text || '')
-    // Strip zero-width and directional control chars that render as rectangles
+    // BiDi / zero-width control chars that render as □ in any PDF
     .replace(/[\u200B\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]/g, '')
-    // Strip characters not in Arabic fonts (render as rectangles)
-    .replace(/[\u25C6\u25CF\u25A0\u25A1\u25B6\u25BA\u2605\u2606]/g, '')
+    // Geometric shapes / misc symbols not in Amiri → safe equivalents
+    .replace(/[\u25A0\u25A1\u25AA\u25AB\u25CF\u25C6]/g, '\u2022') // squares/circles → • (U+2022, in Amiri)
+    .replace(/[\u25B6\u25BA\u25C0\u25C4]/g, '>')                   // triangles → >
+    .replace(/[\u2605\u2606]/g, '*')                                // stars → *
+    .replace(/[\u2713\u2714]/g, '\u221A')                           // check marks → √ (in Amiri)
+    .replace(/[\u2718\u2717]/g, 'x')                                // cross marks → x
+    // Smart quotes → straight equivalents (Amiri has U+201C/D but normalise anyway)
+    .replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
     .replace(/\r/g, '')
 }
 
-// Generate a real PDF with proper Arabic rendering using Noto Naskh Arabic font
+// Generate a professional PDF using Amiri (Arabic + Latin + symbols, no rectangles)
 async function generatePDFFile(pdfData, filename) {
   const title   = cleanArabicText((typeof pdfData === 'string' ? '' : pdfData.title)  || filename)
   const content = cleanArabicText((typeof pdfData === 'string' ? pdfData : pdfData.content) || '')
@@ -246,11 +255,13 @@ async function generatePDFFile(pdfData, filename) {
   const stream = fs.createWriteStream(filePath)
   doc.pipe(stream)
 
-  if (fs.existsSync(NOTO_FONT)) {
-    doc.registerFont('NotoAr', NOTO_FONT)
+  const hasAmiri = fs.existsSync(AMIRI_REGULAR)
+  if (hasAmiri) {
+    doc.registerFont('Amiri',     AMIRI_REGULAR)
+    doc.registerFont('AmiriBold', fs.existsSync(AMIRI_BOLD) ? AMIRI_BOLD : AMIRI_REGULAR)
   }
-  const F = fs.existsSync(NOTO_FONT) ? 'NotoAr' : 'Helvetica'
-  const FB = F  // Noto doesn't have a separate bold, use same
+  const F  = hasAmiri ? 'Amiri'     : 'Helvetica'
+  const FB = hasAmiri ? 'AmiriBold' : 'Helvetica-Bold'
 
   const W = doc.page.width, H = doc.page.height
   const ML = 50, MR = 50, CW = W - ML - MR
