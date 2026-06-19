@@ -3,7 +3,8 @@ import { Send, Paperclip } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useT } from '../../i18n/translations'
 import { useDropzone } from 'react-dropzone'
-import api, { uploadStarted, uploadFinished } from '../../lib/api'
+import { uploadStarted, uploadFinished } from '../../lib/api'
+import { uploadChunked } from '../../lib/uploadChunked'
 import toast from 'react-hot-toast'
 
 interface Props {
@@ -19,6 +20,7 @@ export default function ChatInput({ onSend, disabled, projectId, onFileUploaded 
   const { lang } = useTheme()
   const tr = useT(lang)
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
 
   useEffect(() => {
     if (!uploading) return
@@ -45,15 +47,18 @@ export default function ChatInput({ onSend, disabled, projectId, onFileUploaded 
   const onDrop = useCallback(async (accepted: File[]) => {
     if (!accepted.length) return
     setUploading(true)
+    setUploadProgress(0)
     uploadStarted()
-    const formData = new FormData()
-    formData.append('file', accepted[0])
     try {
-      const res = await api.post(`/files/${projectId}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
-      onFileUploaded(res.data.file)
+      const data = await uploadChunked(accepted[0], projectId, setUploadProgress)
+      onFileUploaded(data.file)
     } catch (err: any) {
       toast.error(err.response?.data?.error || tr('uploadError'))
-    } finally { uploadFinished(); setUploading(false) }
+    } finally {
+      uploadFinished()
+      setUploading(false)
+      setUploadProgress(0)
+    }
   }, [projectId])
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
@@ -77,8 +82,9 @@ export default function ChatInput({ onSend, disabled, projectId, onFileUploaded 
         </div>
       )}
       {uploading && (
-        <div className="text-center text-xs text-[var(--muted)] py-1 animate-fade-in">
-          ⏳ جاري رفع الملف... لا تحدّث الصفحة
+        <div className="flex items-center gap-2 text-xs text-[var(--muted)] py-1 animate-fade-in">
+          <span className="inline-block w-3 h-3 border-2 border-primary-600 border-t-transparent rounded-full animate-spin shrink-0" />
+          <span>جاري الرفع {uploadProgress < 95 ? `${uploadProgress}%` : '— جاري المعالجة...'} — لا تحدّث الصفحة</span>
         </div>
       )}
       <div className="flex items-end gap-3 bg-[var(--bg)] rounded-2xl border border-[var(--border)] px-4 py-2 focus-within:border-primary-400 transition-colors">

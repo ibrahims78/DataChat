@@ -3,7 +3,8 @@ import { useDropzone } from 'react-dropzone'
 import { Upload, X, CheckCircle, AlertCircle } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useT } from '../../i18n/translations'
-import api, { uploadStarted, uploadFinished } from '../../lib/api'
+import { uploadStarted, uploadFinished } from '../../lib/api'
+import { uploadChunked } from '../../lib/uploadChunked'
 import toast from 'react-hot-toast'
 
 interface Props { projectId: number; onClose: () => void; onUploaded: (file: any) => Promise<void> }
@@ -29,20 +30,20 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
     setUploading(true)
     setProgress('جاري الرفع...')
     uploadStarted()
-    const formData = new FormData()
-    formData.append('file', accepted[0])
     try {
-      const res = await api.post(`/files/${projectId}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        onUploadProgress: (e) => {
-          if (e.total) setProgress(`${Math.round((e.loaded / e.total) * 100)}%`)
-        }
+      const data = await uploadChunked(accepted[0], projectId, (pct) => {
+        if (pct < 95) setProgress(`${pct}%`)
+        else setProgress('جاري المعالجة...')
       })
-      await onUploaded(res.data.file)
+      await onUploaded(data.file)
       onClose()
     } catch (err: any) {
       toast.error(err.response?.data?.error || tr('uploadError'))
-    } finally { uploadFinished(); setUploading(false); setProgress('') }
+    } finally {
+      uploadFinished()
+      setUploading(false)
+      setProgress('')
+    }
   }, [projectId])
 
   const { getRootProps, getInputProps, isDragActive, acceptedFiles, fileRejections } = useDropzone({

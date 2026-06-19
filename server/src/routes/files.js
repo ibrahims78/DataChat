@@ -12,12 +12,21 @@ const { authenticate } = require('../middleware/auth')
 const router = express.Router()
 router.use(authenticate)
 
+const UPLOADS_DIR = path.join(__dirname, '../../../uploads')
+const CHUNKS_DIR = path.join(UPLOADS_DIR, 'chunks')
+if (!fs.existsSync(CHUNKS_DIR)) fs.mkdirSync(CHUNKS_DIR, { recursive: true })
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, '../../../uploads')),
+  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
   filename: (req, file, cb) => {
     const unique = Date.now() + '-' + Math.round(Math.random() * 1e9)
     cb(null, unique + path.extname(file.originalname))
   }
+})
+
+const chunkStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, CHUNKS_DIR),
+  filename: (req, file, cb) => cb(null, `${req.body.uploadId}-${req.body.chunkIndex}`)
 })
 
 const upload = multer({
@@ -29,6 +38,11 @@ const upload = multer({
     if (allowed.includes(ext)) cb(null, true)
     else cb(new Error('File type not supported'))
   }
+})
+
+const uploadChunk = multer({
+  storage: chunkStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }
 })
 
 function getFileType(filename) {
@@ -228,6 +242,67 @@ router.patch('/:projectId/reorder-generated', async (req, res) => {
     ))
     res.json({ success: true })
   } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── Chunked upload routes ────────────────────────────────────────────────────
+
+router.post('/:projectId/upload-chunk', uploadChunk.single('chunk'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No chunk received' })
+    res.json({ ok: true, chunkIndex: req.body.chunkIndex })
+  } catch (err) {
+    if (req.file?.path) fs.unlink(req.file.path, () => {})
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.post('/:projectId/assemble-chunks', async (req, res) => {
+  const { uploadId, fileName, totalChunks } = req.body
+  if (!uploadId || !fileName || !totalChunks) return res.status(400).json({ error: 'Missing params' })
+
+  const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc', '.md', '.txt', '.json']
+  const ext = path.extname(fileName).toLowerCase()
+  if (!allowed.includes(ext)) return res.status(400).json({ error: 'File type not supported' })
+
+  const unique = Date.now() + '-' + Math.round(Math.random() * 1e9)
+  const storedName = unique + ext
+  const destPath = path.join(UPLOADS_DIR, storedName)
+
+  try {
+    const projectCheck = await db.query('SELECT * FROM projects WHERE id=$1', [req.params.projectId])
+    if (!projectCheck.rows.length) return res.status(404).json({ error: 'Project not found' })
+    if (req.user.role !== 'admin' && projectCheck.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
+    const countCheck = await db.query('SELECT COUNT(*) FROM files WHERE project_id=$1', [req.params.projectId])
+    if (parseInt(countCheck.rows[0].count) >= 10) return res.status(400).json({ error: 'Maximum 10 files per project' })
+
+    const writeStream = fs.createWriteStream(destPath)
+    for (let i = 0; i < parseInt(totalChunks); i++) {
+      const chunkPath = path.join(CHUNKS_DIR, `${uploadId}-${i}`)
+      if (!fs.existsSync(chunkPath)) throw new Error(`Missing chunk ${i}`)
+      const data = fs.readFileSync(chunkPath)
+      writeStream.write(data)
+    }
+    await new Promise((resolve, reject) => { writeStream.end(); writeStream.on('finish', resolve); writeStream.on('error', reject) })
+
+    for (let i = 0; i < parseInt(totalChunks); i++) {
+      const chunkPath = path.join(CHUNKS_DIR, `${uploadId}-${i}`)
+      if (fs.existsSync(chunkPath)) fs.unlink(chunkPath, () => {})
+    }
+
+    const stat = fs.statSync(destPath)
+    const fileType = getFileType(fileName)
+    const maxOrder = await db.query('SELECT COALESCE(MAX(sort_order),0) as m FROM files WHERE project_id=$1', [req.params.projectId])
+    const result = await db.query(
+      'INSERT INTO files (project_id, original_name, stored_name, file_type, file_size, mime_type, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+      [req.params.projectId, fileName, storedName, fileType, stat.size, null, parseInt(maxOrder.rows[0].m) + 1]
+    )
+    await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [req.params.projectId])
+    const preview = await getFilePreview(destPath, fileType)
+    res.json({ file: result.rows[0], preview })
+  } catch (err) {
+    if (fs.existsSync(destPath)) fs.unlink(destPath, () => {})
     res.status(500).json({ error: err.message })
   }
 })
