@@ -226,15 +226,18 @@ const AMIRI_BOLD    = path.join(__dirname, '../../assets/fonts/Amiri-Bold.ttf')
 // We only need to map the tiny set of chars that fall outside its coverage.
 function cleanArabicText(text) {
   return (text || '')
-    // BiDi / zero-width control chars that render as □ in any PDF
+    // 1. Strip Arabic diacritical marks (harakat) — they trigger a fontkit GPOS crash
+    //    with complex Arabic fonts (mark-to-base anchor = null bug)
+    .replace(/[\u064B-\u065F\u0610-\u061A\u06D6-\u06DC\u06DF-\u06E4\u06E7\u06E8\u06EA-\u06ED]/g, '')
+    // 2. BiDi / zero-width control chars that render as □
     .replace(/[\u200B\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]/g, '')
-    // Geometric shapes / misc symbols not in Amiri → safe equivalents
-    .replace(/[\u25A0\u25A1\u25AA\u25AB\u25CF\u25C6]/g, '\u2022') // squares/circles → • (U+2022, in Amiri)
+    // 3. Geometric shapes not in any Arabic font → safe equivalents
+    .replace(/[\u25A0\u25A1\u25AA\u25AB\u25CF\u25C6]/g, '\u2022') // squares/diamonds → •
     .replace(/[\u25B6\u25BA\u25C0\u25C4]/g, '>')                   // triangles → >
     .replace(/[\u2605\u2606]/g, '*')                                // stars → *
-    .replace(/[\u2713\u2714]/g, '\u221A')                           // check marks → √ (in Amiri)
-    .replace(/[\u2718\u2717]/g, 'x')                                // cross marks → x
-    // Smart quotes → straight equivalents (Amiri has U+201C/D but normalise anyway)
+    .replace(/[\u2713\u2714]/g, '\u221A')                           // check → √
+    .replace(/[\u2718\u2717]/g, 'x')                                // cross → x
+    // 4. Smart quotes → straight (Amiri supports them but normalise anyway)
     .replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
     .replace(/\r/g, '')
 }
@@ -266,18 +269,26 @@ async function generatePDFFile(pdfData, filename) {
   const W = doc.page.width, H = doc.page.height
   const ML = 50, MR = 50, CW = W - ML - MR
 
+  // Safe text renderer — catches fontkit GPOS crashes on individual lines
+  const safeText = (text, x, y, opts, font, size, color) => {
+    try {
+      doc.font(font).fontSize(size).fillColor(color).text(text, x, y, opts)
+    } catch (e) {
+      // If rendering fails, strip all non-ASCII-Arabic chars and retry
+      const safe = text.replace(/[^\u0000-\u007F\u0600-\u06FF\u0750-\u077F\uFE70-\uFEFF]/g, '')
+      try { doc.font(font).fontSize(size).fillColor(color).text(safe || '.', x, y, opts) } catch {}
+    }
+  }
+
   // ── Header ─────────────────────────────────────────────────────────────────
   doc.rect(0, 0, W, 88).fill('#7C3AED')
   doc.rect(0, 84, W, 4).fill('#5B21B6')
-  doc.font(FB).fontSize(22).fillColor('#FFFFFF')
-    .text(title, ML, 20, { width: CW, align: 'right' })
-  doc.font(F).fontSize(10).fillColor('#DDD6FE')
-    .text('DataChat — المحلل الذكي للبيانات', ML, 62, { width: CW, align: 'right' })
+  safeText(title, ML, 20, { width: CW, align: 'right' }, FB, 22, '#FFFFFF')
+  safeText('DataChat', ML, 62, { width: CW, align: 'right' }, F, 10, '#DDD6FE')
 
   // ── Date strip ──────────────────────────────────────────────────────────────
   doc.rect(0, 88, W, 26).fill('#F5F3FF')
-  doc.font(F).fontSize(9).fillColor('#6D28D9')
-    .text(`تاريخ الإنشاء: ${dateStr}`, ML, 99, { width: CW, align: 'right' })
+  safeText(`${dateStr}`, ML, 99, { width: CW, align: 'right' }, F, 9, '#6D28D9')
 
   doc.y = 130
 
@@ -296,36 +307,31 @@ async function generatePDFFile(pdfData, filename) {
     if (line.startsWith('# ')) {
       doc.moveDown(0.5)
       doc.rect(ML - 8, doc.y - 2, CW + 16, 30).fill('#F5F3FF')
-      doc.font(FB).fontSize(16).fillColor('#5B21B6')
-        .text(line.slice(2), ML, doc.y + 5, { width: CW, align: 'right' })
+      safeText(line.slice(2), ML, doc.y + 5, { width: CW, align: 'right' }, FB, 16, '#5B21B6')
       doc.moveDown(1.3).fillColor('#1F2937')
 
     } else if (line.startsWith('## ')) {
       doc.moveDown(0.4)
-      doc.font(FB).fontSize(13).fillColor('#7C3AED')
-        .text(line.slice(3), ML, doc.y, { width: CW, align: 'right' })
+      safeText(line.slice(3), ML, doc.y, { width: CW, align: 'right' }, FB, 13, '#7C3AED')
       doc.moveDown(0.15)
       doc.moveTo(ML, doc.y).lineTo(W - MR, doc.y).lineWidth(0.5).strokeColor('#DDD6FE').stroke()
       doc.moveDown(0.4).fillColor('#1F2937')
 
-    } else if (/^[-•*]\s/.test(line)) {
-      doc.font(F).fontSize(12).fillColor('#374151')
-        .text(line.replace(/^[-•*]\s+/, '') + '  \u2022', ML + 12, doc.y, { width: CW - 12, align: 'right', lineGap: 2 })
+    } else if (/^[-\u2022*]\s/.test(line)) {
+      const txt = line.replace(/^[-\u2022*]\s+/, '') + '  \u2022'
+      safeText(txt, ML + 12, doc.y, { width: CW - 12, align: 'right', lineGap: 2 }, F, 12, '#374151')
       doc.moveDown(0.2)
 
     } else if (/^\d+\.\s/.test(line)) {
-      doc.font(F).fontSize(12).fillColor('#374151')
-        .text(line, ML + 12, doc.y, { width: CW - 12, align: 'right', lineGap: 2 })
+      safeText(line, ML + 12, doc.y, { width: CW - 12, align: 'right', lineGap: 2 }, F, 12, '#374151')
       doc.moveDown(0.2)
 
     } else if (line.startsWith('**') && line.endsWith('**')) {
-      doc.font(FB).fontSize(12).fillColor('#111827')
-        .text(line.replace(/\*\*/g, ''), ML, doc.y, { width: CW, align: 'right' })
+      safeText(line.replace(/\*\*/g, ''), ML, doc.y, { width: CW, align: 'right' }, FB, 12, '#111827')
       doc.moveDown(0.3)
 
     } else {
-      doc.font(F).fontSize(12).fillColor('#1F2937')
-        .text(line, ML, doc.y, { width: CW, align: 'right', lineGap: 3 })
+      safeText(line, ML, doc.y, { width: CW, align: 'right', lineGap: 3 }, F, 12, '#1F2937')
       doc.moveDown(0.25)
     }
   }
@@ -333,8 +339,7 @@ async function generatePDFFile(pdfData, filename) {
   // ── Footer ─────────────────────────────────────────────────────────────────
   const footerY = H - 36
   doc.moveTo(ML, footerY).lineTo(W - MR, footerY).lineWidth(0.5).strokeColor('#E5E7EB').stroke()
-  doc.font(F).fontSize(8).fillColor('#9CA3AF')
-    .text('تم إنشاء هذا التقرير بواسطة DataChat AI Platform', ML, footerY + 8, { width: CW, align: 'center' })
+  safeText('DataChat AI Platform', ML, footerY + 8, { width: CW, align: 'center' }, F, 8, '#9CA3AF')
 
   doc.end()
   await new Promise((resolve, reject) => { stream.on('finish', resolve); stream.on('error', reject) })
