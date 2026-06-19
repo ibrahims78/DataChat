@@ -159,8 +159,8 @@ export default function ProjectPage() {
     }
   }
 
-  const handleFileUploaded = (file: any) => {
-    setProject(p => p ? { ...p, files: [...p.files, file] } : p)
+  const handleFileUploaded = async (_file: any) => {
+    await fetchProject()
     toast.success(tr('uploadSuccess'))
   }
 

@@ -6,7 +6,7 @@ import { useT } from '../../i18n/translations'
 import api, { uploadStarted, uploadFinished } from '../../lib/api'
 import toast from 'react-hot-toast'
 
-interface Props { projectId: number; onClose: () => void; onUploaded: (file: any) => void }
+interface Props { projectId: number; onClose: () => void; onUploaded: (file: any) => Promise<void> }
 
 export default function FileUploadModal({ projectId, onClose, onUploaded }: Props) {
   const [uploading, setUploading] = useState(false)
@@ -38,8 +38,7 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
           if (e.total) setProgress(`${Math.round((e.loaded / e.total) * 100)}%`)
         }
       })
-      onUploaded(res.data.file)
-      toast.success(tr('uploadSuccess'))
+      await onUploaded(res.data.file)
       onClose()
     } catch (err: any) {
       toast.error(err.response?.data?.error || tr('uploadError'))
