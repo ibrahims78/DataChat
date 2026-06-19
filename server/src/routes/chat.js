@@ -223,7 +223,10 @@ const NOTO_FONT  = path.join(__dirname, '../../assets/fonts/NotoNaskhArabic-Regu
 // (causes □ rectangles between words in PDFKit)
 function cleanArabicText(text) {
   return (text || '')
-    .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]/g, '')
+    // Strip zero-width and directional control chars that render as rectangles
+    .replace(/[\u200B\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]/g, '')
+    // Strip characters not in Arabic fonts (render as rectangles)
+    .replace(/[\u25C6\u25CF\u25A0\u25A1\u25B6\u25BA\u2605\u2606]/g, '')
     .replace(/\r/g, '')
 }
 
@@ -296,7 +299,7 @@ async function generatePDFFile(pdfData, filename) {
 
     } else if (/^[-•*]\s/.test(line)) {
       doc.font(F).fontSize(12).fillColor('#374151')
-        .text('◆  ' + line.replace(/^[-•*]\s+/, ''), ML + 12, doc.y, { width: CW - 12, align: 'right', lineGap: 2 })
+        .text(line.replace(/^[-•*]\s+/, '') + '  \u2022', ML + 12, doc.y, { width: CW - 12, align: 'right', lineGap: 2 })
       doc.moveDown(0.2)
 
     } else if (/^\d+\.\s/.test(line)) {
@@ -511,6 +514,8 @@ router.post('/:projectId/message', async (req, res) => {
 6. عند طلب HTML استخدم [HTML_FILE] فقط، لا [PDF_FILE] ولا [EXCEL_FILE].
 7. عند طلب Markdown أو md استخدم [MD_FILE] فقط.
 8. عند طلب ملف نصي أو txt استخدم [TXT_FILE] فقط.
+9. عند طلب PDF أو تقرير PDF استخدم [PDF_FILE] حصراً — لا تستخدم [EXCEL_FILE] أبداً حتى لو الملف المرجعي هو Excel أو HTML أو يحتوي على بيانات — PDF يعني [PDF_FILE] دائماً بدون استثناء.
+10. إذا طلب المستخدم PDF لملف HTML أو أي ملف آخر، اقرأ محتواه من "الملفات المرفوعة للتحليل" واكتب محتواه في حقل content لـ [PDF_FILE] — لا تُنشئ Excel بديلاً.
 
 ---
 
