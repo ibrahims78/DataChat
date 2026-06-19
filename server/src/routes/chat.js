@@ -7,6 +7,7 @@ const mammoth = require('mammoth')
 const { parse } = require('csv-parse/sync')
 const ExcelJS = require('exceljs')
 const PDFDocument = require('pdfkit')
+const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = require('docx')
 const { GoogleGenerativeAI } = require('@google/generative-ai')
 const db = require('../lib/db')
 const { authenticate } = require('../middleware/auth')
@@ -215,6 +216,66 @@ function generateTXTFile(content, filename) {
   const filePath = path.join(genDir, storedName)
   fs.writeFileSync(filePath, content, 'utf8')
   return { storedName, originalName: `${filename}.txt`, fileSize: fs.statSync(filePath).size }
+}
+
+async function generateWordFile(content, filename) {
+  const genDir = path.join(__dirname, '../../../uploads/generated')
+  if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true })
+
+  const lines = content.split('\n')
+  const docChildren = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      docChildren.push(new Paragraph({ children: [] }))
+      continue
+    }
+    if (trimmed.startsWith('### ')) {
+      docChildren.push(new Paragraph({
+        text: trimmed.slice(4),
+        heading: HeadingLevel.HEADING_3,
+        alignment: AlignmentType.RIGHT,
+      }))
+    } else if (trimmed.startsWith('## ')) {
+      docChildren.push(new Paragraph({
+        text: trimmed.slice(3),
+        heading: HeadingLevel.HEADING_2,
+        alignment: AlignmentType.RIGHT,
+      }))
+    } else if (trimmed.startsWith('# ')) {
+      docChildren.push(new Paragraph({
+        text: trimmed.slice(2),
+        heading: HeadingLevel.HEADING_1,
+        alignment: AlignmentType.RIGHT,
+      }))
+    } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      docChildren.push(new Paragraph({
+        children: [new TextRun({ text: trimmed.slice(2) })],
+        bullet: { level: 0 },
+        alignment: AlignmentType.RIGHT,
+      }))
+    } else {
+      const parts = trimmed.split(/(\*\*[^*]+\*\*)/g)
+      const runs = parts.map(p => {
+        if (p.startsWith('**') && p.endsWith('**')) {
+          return new TextRun({ text: p.slice(2, -2), bold: true })
+        }
+        return new TextRun({ text: p })
+      })
+      docChildren.push(new Paragraph({ children: runs, alignment: AlignmentType.RIGHT }))
+    }
+  }
+
+  const doc = new Document({
+    sections: [{ properties: {}, children: docChildren }],
+  })
+
+  const storedName = `${Date.now()}-${filename}.docx`
+  const filePath = path.join(genDir, storedName)
+  const buffer = await Packer.toBuffer(doc)
+  fs.writeFileSync(filePath, buffer)
+  return { storedName, originalName: `${filename}.docx`, fileSize: fs.statSync(filePath).size }
 }
 
 // Amiri covers Arabic + full Latin + common symbols → no rectangles
@@ -481,10 +542,10 @@ router.post('/:projectId/message', async (req, res) => {
     // File generation protocol — placed FIRST so it takes highest priority
     const FILE_GEN_PROTOCOL = `## [تعليمات النظام — إلزامية — إنشاء الملفات]
 
-أنت مساعد ذكاء اصطناعي داخل منصة DataChat. المنصة تدعم إنشاء ملفات Excel وPDF وHTML حقيقية قابلة للتحميل.
+أنت مساعد ذكاء اصطناعي داخل منصة DataChat. المنصة تدعم إنشاء ملفات Excel وPDF وHTML وWord حقيقية قابلة للتحميل.
 
 ### القاعدة الأساسية — MUST FOLLOW:
-في كل مرة يطلب فيها المستخدم ملف Excel أو PDF أو HTML أو تقريراً أو بيانات للتنزيل:
+في كل مرة يطلب فيها المستخدم ملف Excel أو PDF أو HTML أو Word أو تقريراً أو بيانات للتنزيل:
 يجب أن تُنهي ردك بأمر الملف المناسب بين الوسوم التالية مباشرةً — هذا إلزامي وليس اختيارياً.
 
 ### صيغة ملف Excel (أضفها في آخر ردك):
@@ -500,6 +561,10 @@ router.post('/:projectId/message', async (req, res) => {
 ### صيغة ملف JSON (أضفها في آخر ردك عندما يطلب المستخدم ملف json):
 استخدم هذه الصيغة — اسم الملف ثم | ثم محتوى JSON صحيح:
 [JSON_FILE]اسم_الملف|{"key": "value"}[/JSON_FILE]
+
+### صيغة ملف Word / docx (أضفها في آخر ردك عندما يطلب المستخدم ملف Word أو docx أو وورد):
+استخدم هذه الصيغة — اسم الملف ثم | ثم المحتوى بصيغة Markdown مباشرةً (# للعناوين، ** للعريض، - للقوائم):
+[WORD_FILE]اسم_الملف|# العنوان الرئيسي\n\n## القسم الأول\n\nالمحتوى هنا...\n\n- نقطة أولى\n- نقطة ثانية[/WORD_FILE]
 
 ### صيغة ملف Markdown (أضفها في آخر ردك عندما يطلب المستخدم ملف md أو markdown):
 استخدم هذه الصيغة — اسم الملف ثم | ثم محتوى Markdown مباشرةً:
@@ -532,6 +597,7 @@ router.post('/:projectId/message', async (req, res) => {
 8. عند طلب ملف نصي أو txt استخدم [TXT_FILE] فقط.
 9. عند طلب PDF أو تقرير PDF استخدم [PDF_FILE] حصراً — لا تستخدم [EXCEL_FILE] أبداً حتى لو الملف المرجعي هو Excel أو HTML أو يحتوي على بيانات — PDF يعني [PDF_FILE] دائماً بدون استثناء.
 10. إذا طلب المستخدم PDF لملف HTML أو أي ملف آخر، اقرأ محتواه من "الملفات المرفوعة للتحليل" واكتب محتواه في حقل content لـ [PDF_FILE] — لا تُنشئ Excel بديلاً.
+11. عند طلب ملف Word أو docx أو وورد استخدم [WORD_FILE] حصراً — اكتب المحتوى كاملاً بصيغة Markdown داخل الوسم.
 
 ---
 
@@ -577,12 +643,13 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
     let mdMatch = fullResponse.match(/\[MD_FILE\]([\s\S]*?)\[\/MD_FILE\]/)
     let txtMatch = fullResponse.match(/\[TXT_FILE\]([\s\S]*?)\[\/TXT_FILE\]/)
     let jsonMatch = fullResponse.match(/\[JSON_FILE\]([\s\S]*?)\[\/JSON_FILE\]/)
+    let wordMatch = fullResponse.match(/\[WORD_FILE\]([\s\S]*?)\[\/WORD_FILE\]/)
 
     // --- Fallback: if user asked for a file but AI didn't generate a tag, make a second focused call ---
     const fileKeywords = /ملف\s*(excel|اكسل|xlsx|إكسل|pdf|بي دي اف|تقرير|word|html|ويب|md|markdown|txt|نصي|json)|أنشئ\s*ملف|اعطني\s*ملف|عطني\s*ملف|صدّر|صدر\s*البيانات|تحميل\s*ملف|download.*file|create.*file|generate.*file|export/i
     const userWantsFile = fileKeywords.test(message)
 
-    if (userWantsFile && !excelMatch && !pdfMatch && !htmlMatch && !mdMatch && !txtMatch && !jsonMatch) {
+    if (userWantsFile && !excelMatch && !pdfMatch && !htmlMatch && !mdMatch && !txtMatch && !jsonMatch && !wordMatch) {
       console.log('[FALLBACK] User requested file but AI did not generate tag. Triggering fallback call.')
       try {
         const isHTML = /html|ويب|صفحة\s*ويب/i.test(message)
@@ -590,7 +657,8 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         const isMD = !isHTML && !isJSON && /\.md|markdown|ماركداون/i.test(message)
         const isTXT = !isHTML && !isJSON && !isMD && /\.txt|نصي\s*txt|ملف\s*نص/i.test(message)
         const isPDF = !isHTML && !isJSON && !isMD && !isTXT && /pdf|بي دي اف|تقرير\s*pdf/i.test(message)
-        const fileType = isHTML ? 'HTML' : isJSON ? 'JSON' : isMD ? 'MD' : isTXT ? 'TXT' : isPDF ? 'PDF' : 'Excel'
+        const isWord = !isHTML && !isJSON && !isMD && !isTXT && !isPDF && /word|docx|وورد|ورد\s*doc/i.test(message)
+        const fileType = isHTML ? 'HTML' : isJSON ? 'JSON' : isMD ? 'MD' : isTXT ? 'TXT' : isPDF ? 'PDF' : isWord ? 'Word' : 'Excel'
         const fallbackPrompt = isHTML
           ? `أنشئ ملف HTML كاملاً للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n\nالصيغة المطلوبة (اسم الملف ثم | ثم محتوى HTML مباشرةً):\n[HTML_FILE]اسم_الملف.html|<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"></head><body>...المحتوى الكامل...</body></html>[/HTML_FILE]\n\nمهم: لا تستخدم JSON، ضع اسم الملف ثم | ثم كود HTML مباشرةً.`
           : isJSON
@@ -601,6 +669,8 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
           ? `أنشئ ملف نصي للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n\nالصيغة المطلوبة (اسم الملف ثم | ثم المحتوى النصي):\n[TXT_FILE]اسم_الملف|المحتوى النصي...[/TXT_FILE]`
           : isPDF
           ? `أنشئ ملف PDF للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n\nالصيغة المطلوبة:\n[PDF_FILE]{"filename":"اسم","title":"العنوان","content":"المحتوى الكامل"}[/PDF_FILE]`
+          : isWord
+          ? `أنشئ ملف Word للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n${fileContents ? `\nالبيانات المتاحة:\n${fileContents.substring(0, 3000)}` : ''}\n\nالصيغة المطلوبة (اسم الملف ثم | ثم المحتوى بصيغة Markdown):\n[WORD_FILE]اسم_الملف|# العنوان الرئيسي\n\n## القسم الأول\n\nالمحتوى الكامل هنا...[/WORD_FILE]\n\nأخرج الوسم فقط لا غير.`
           : `أنشئ ملف Excel للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n${fileContents ? `\nالبيانات المتاحة:\n${fileContents.substring(0, 3000)}` : ''}\n\nالصيغة المطلوبة:\n[EXCEL_FILE]{"filename":"اسم_الملف","sheets":[{"name":"اسم الورقة","headers":["عمود1","عمود2"],"rows":[["قيمة1","قيمة2"]]}]}[/EXCEL_FILE]\n\nأخرج الوسم فقط لا غير.`
 
         const fallbackModel = genAI.getGenerativeModel({
@@ -621,11 +691,13 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
           txtMatch = fallbackText.match(/\[TXT_FILE\]([\s\S]*?)\[\/TXT_FILE\]/)
         } else if (isPDF) {
           pdfMatch = fallbackText.match(/\[PDF_FILE\]([\s\S]*?)\[\/PDF_FILE\]/)
+        } else if (isWord) {
+          wordMatch = fallbackText.match(/\[WORD_FILE\]([\s\S]*?)\[\/WORD_FILE\]/)
         } else {
           excelMatch = fallbackText.match(/\[EXCEL_FILE\]([\s\S]*?)\[\/EXCEL_FILE\]/)
         }
 
-        if (excelMatch || pdfMatch || htmlMatch || mdMatch || txtMatch || jsonMatch) {
+        if (excelMatch || pdfMatch || htmlMatch || mdMatch || txtMatch || jsonMatch || wordMatch) {
           console.log(`[FALLBACK] Successfully extracted ${fileType} tag from fallback call.`)
         } else {
           console.warn('[FALLBACK] Fallback call also did not produce a file tag.')
@@ -644,12 +716,13 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       .replace(/\[MD_FILE\][\s\S]*?\[\/MD_FILE\]/g, '')
       .replace(/\[TXT_FILE\][\s\S]*?\[\/TXT_FILE\]/g, '')
       .replace(/\[JSON_FILE\][\s\S]*?\[\/JSON_FILE\]/g, '')
+      .replace(/\[WORD_FILE\][\s\S]*?\[\/WORD_FILE\]/g, '')
       .trim()
 
     // If AI sent only a file tag with no text, add a default confirmation message
-    const hadFileTag = excelMatch || pdfMatch || htmlMatch || mdMatch || txtMatch || jsonMatch
+    const hadFileTag = excelMatch || pdfMatch || htmlMatch || mdMatch || txtMatch || jsonMatch || wordMatch
     if (hadFileTag && !cleanResponse) {
-      const fileType = excelMatch ? 'Excel' : pdfMatch ? 'PDF' : htmlMatch ? 'HTML' : mdMatch ? 'Markdown' : jsonMatch ? 'JSON' : 'نصي'
+      const fileType = excelMatch ? 'Excel' : pdfMatch ? 'PDF' : htmlMatch ? 'HTML' : mdMatch ? 'Markdown' : jsonMatch ? 'JSON' : wordMatch ? 'Word' : 'نصي'
       cleanResponse = `جاري إنشاء ملف ${fileType} بالبيانات المطلوبة… ستجد زر التحميل في لوحة الملفات بعد لحظات.`
     }
 
@@ -809,6 +882,27 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         generatedFile = gf.rows[0]
         console.log('[JSON] File saved:', jf.storedName)
       } catch (e) { console.error('JSON generation error:', e.message, e.stack) }
+    } else if (wordMatch) {
+      try {
+        const rawWord = wordMatch[1].trim()
+        const pipeIdx = rawWord.indexOf('|')
+        let filename, wordContent
+        if (pipeIdx !== -1) {
+          filename = rawWord.slice(0, pipeIdx).trim().replace(/\.docx$/i, '') || ('مستند_' + Date.now())
+          wordContent = rawWord.slice(pipeIdx + 1)
+        } else {
+          filename = 'مستند_' + Date.now()
+          wordContent = rawWord
+        }
+        console.log('[WORD] Generating file:', filename + '.docx', 'content length:', wordContent.length)
+        const wf = await generateWordFile(wordContent, filename)
+        const gf = await db.query(
+          'INSERT INTO generated_files (project_id, message_id, original_name, stored_name, file_type, file_size) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+          [req.params.projectId, aiMsgResult.rows[0].id, wf.originalName, wf.storedName, 'word', wf.fileSize || null]
+        )
+        generatedFile = gf.rows[0]
+        console.log('[WORD] File saved:', wf.storedName)
+      } catch (e) { console.error('Word generation error:', e.message, e.stack) }
     }
 
     await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [req.params.projectId])
