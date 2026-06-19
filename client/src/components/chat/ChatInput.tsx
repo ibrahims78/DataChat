@@ -3,7 +3,7 @@ import { Send, Paperclip } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useT } from '../../i18n/translations'
 import { useDropzone } from 'react-dropzone'
-import api from '../../lib/api'
+import api, { uploadStarted, uploadFinished } from '../../lib/api'
 import toast from 'react-hot-toast'
 
 interface Props {
@@ -45,6 +45,7 @@ export default function ChatInput({ onSend, disabled, projectId, onFileUploaded 
   const onDrop = useCallback(async (accepted: File[]) => {
     if (!accepted.length) return
     setUploading(true)
+    uploadStarted()
     const formData = new FormData()
     formData.append('file', accepted[0])
     try {
@@ -52,7 +53,7 @@ export default function ChatInput({ onSend, disabled, projectId, onFileUploaded 
       onFileUploaded(res.data.file)
     } catch (err: any) {
       toast.error(err.response?.data?.error || tr('uploadError'))
-    } finally { setUploading(false) }
+    } finally { uploadFinished(); setUploading(false) }
   }, [projectId])
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({

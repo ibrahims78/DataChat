@@ -3,7 +3,7 @@ import { useDropzone } from 'react-dropzone'
 import { Upload, X, CheckCircle, AlertCircle } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useT } from '../../i18n/translations'
-import api from '../../lib/api'
+import api, { uploadStarted, uploadFinished } from '../../lib/api'
 import toast from 'react-hot-toast'
 
 interface Props { projectId: number; onClose: () => void; onUploaded: (file: any) => void }
@@ -28,6 +28,7 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
     if (!accepted.length) return
     setUploading(true)
     setProgress('جاري الرفع...')
+    uploadStarted()
     const formData = new FormData()
     formData.append('file', accepted[0])
     try {
@@ -42,7 +43,7 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
       onClose()
     } catch (err: any) {
       toast.error(err.response?.data?.error || tr('uploadError'))
-    } finally { setUploading(false); setProgress('') }
+    } finally { uploadFinished(); setUploading(false); setProgress('') }
   }, [projectId])
 
   const { getRootProps, getInputProps, isDragActive, acceptedFiles, fileRejections } = useDropzone({
