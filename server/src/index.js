@@ -44,7 +44,10 @@ async function initDB() {
   }
 }
 
-app.listen(PORT, '0.0.0.0', async () => {
+const server = app.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 DataChat server running on port ${PORT}`)
   await initDB()
 })
+
+server.timeout = 300000
+server.keepAliveTimeout = 300000
