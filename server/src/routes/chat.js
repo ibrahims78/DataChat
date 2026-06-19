@@ -124,6 +124,15 @@ async function extractFileContent(file) {
       const content = fs.readFileSync(filePath, 'utf8')
       return `[ملف نصي: ${file.original_name}]\n${content.substring(0, 8000)}`
     }
+    if (file.file_type === 'json') {
+      const content = fs.readFileSync(filePath, 'utf8')
+      try {
+        const parsed = JSON.parse(content)
+        return `[ملف JSON: ${file.original_name}]\n${JSON.stringify(parsed, null, 2).substring(0, 8000)}`
+      } catch {
+        return `[ملف JSON: ${file.original_name}]\n${content.substring(0, 8000)}`
+      }
+    }
   } catch (e) { return `[خطأ في قراءة ${file.original_name}: ${e.message}]` }
 }
 
@@ -179,6 +188,15 @@ async function generateExcelFile(data, filename) {
   const filePath = path.join(genDir, storedName)
   await wb.xlsx.writeFile(filePath)
   return { storedName, originalName: `${filename}.xlsx`, fileSize: fs.statSync(filePath).size }
+}
+
+function generateJSONFile(content, filename) {
+  const genDir = path.join(__dirname, '../../../uploads/generated')
+  if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true })
+  const storedName = `${Date.now()}-${filename}.json`
+  const filePath = path.join(genDir, storedName)
+  fs.writeFileSync(filePath, content, 'utf8')
+  return { storedName, originalName: `${filename}.json`, fileSize: fs.statSync(filePath).size }
 }
 
 function generateMDFile(content, filename) {
@@ -460,6 +478,10 @@ router.post('/:projectId/message', async (req, res) => {
 استخدم هذه الصيغة بالضبط — اسم الملف ثم | ثم محتوى HTML مباشرةً بدون JSON:
 [HTML_FILE]اسم_الملف.html|<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>العنوان</title></head><body>...المحتوى...</body></html>[/HTML_FILE]
 
+### صيغة ملف JSON (أضفها في آخر ردك عندما يطلب المستخدم ملف json):
+استخدم هذه الصيغة — اسم الملف ثم | ثم محتوى JSON صحيح:
+[JSON_FILE]اسم_الملف|{"key": "value"}[/JSON_FILE]
+
 ### صيغة ملف Markdown (أضفها في آخر ردك عندما يطلب المستخدم ملف md أو markdown):
 استخدم هذه الصيغة — اسم الملف ثم | ثم محتوى Markdown مباشرةً:
 [MD_FILE]اسم_الملف|# العنوان\n\nالمحتوى هنا...[/MD_FILE]
@@ -533,21 +555,25 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
     let htmlMatch = fullResponse.match(/\[HTML_FILE\]([\s\S]*?)\[\/HTML_FILE\]/)
     let mdMatch = fullResponse.match(/\[MD_FILE\]([\s\S]*?)\[\/MD_FILE\]/)
     let txtMatch = fullResponse.match(/\[TXT_FILE\]([\s\S]*?)\[\/TXT_FILE\]/)
+    let jsonMatch = fullResponse.match(/\[JSON_FILE\]([\s\S]*?)\[\/JSON_FILE\]/)
 
     // --- Fallback: if user asked for a file but AI didn't generate a tag, make a second focused call ---
-    const fileKeywords = /ملف\s*(excel|اكسل|xlsx|إكسل|pdf|بي دي اف|تقرير|word|html|ويب|md|markdown|txt|نصي)|أنشئ\s*ملف|اعطني\s*ملف|عطني\s*ملف|صدّر|صدر\s*البيانات|تحميل\s*ملف|download.*file|create.*file|generate.*file|export/i
+    const fileKeywords = /ملف\s*(excel|اكسل|xlsx|إكسل|pdf|بي دي اف|تقرير|word|html|ويب|md|markdown|txt|نصي|json)|أنشئ\s*ملف|اعطني\s*ملف|عطني\s*ملف|صدّر|صدر\s*البيانات|تحميل\s*ملف|download.*file|create.*file|generate.*file|export/i
     const userWantsFile = fileKeywords.test(message)
 
-    if (userWantsFile && !excelMatch && !pdfMatch && !htmlMatch && !mdMatch && !txtMatch) {
+    if (userWantsFile && !excelMatch && !pdfMatch && !htmlMatch && !mdMatch && !txtMatch && !jsonMatch) {
       console.log('[FALLBACK] User requested file but AI did not generate tag. Triggering fallback call.')
       try {
         const isHTML = /html|ويب|صفحة\s*ويب/i.test(message)
-        const isMD = !isHTML && /\.md|markdown|ماركداون/i.test(message)
-        const isTXT = !isHTML && !isMD && /\.txt|نصي\s*txt|ملف\s*نص/i.test(message)
-        const isPDF = !isHTML && !isMD && !isTXT && /pdf|بي دي اف|تقرير\s*pdf/i.test(message)
-        const fileType = isHTML ? 'HTML' : isMD ? 'MD' : isTXT ? 'TXT' : isPDF ? 'PDF' : 'Excel'
+        const isJSON = !isHTML && /\.json|json/i.test(message)
+        const isMD = !isHTML && !isJSON && /\.md|markdown|ماركداون/i.test(message)
+        const isTXT = !isHTML && !isJSON && !isMD && /\.txt|نصي\s*txt|ملف\s*نص/i.test(message)
+        const isPDF = !isHTML && !isJSON && !isMD && !isTXT && /pdf|بي دي اف|تقرير\s*pdf/i.test(message)
+        const fileType = isHTML ? 'HTML' : isJSON ? 'JSON' : isMD ? 'MD' : isTXT ? 'TXT' : isPDF ? 'PDF' : 'Excel'
         const fallbackPrompt = isHTML
           ? `أنشئ ملف HTML كاملاً للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n\nالصيغة المطلوبة (اسم الملف ثم | ثم محتوى HTML مباشرةً):\n[HTML_FILE]اسم_الملف.html|<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"></head><body>...المحتوى الكامل...</body></html>[/HTML_FILE]\n\nمهم: لا تستخدم JSON، ضع اسم الملف ثم | ثم كود HTML مباشرةً.`
+          : isJSON
+          ? `أنشئ ملف JSON للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n${fileContents ? `\nالبيانات المتاحة:\n${fileContents.substring(0, 3000)}` : ''}\n\nالصيغة المطلوبة (اسم الملف ثم | ثم محتوى JSON صحيح):\n[JSON_FILE]اسم_الملف|{"key": "value"}[/JSON_FILE]`
           : isMD
           ? `أنشئ ملف Markdown للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n\nالصيغة المطلوبة (اسم الملف ثم | ثم محتوى Markdown):\n[MD_FILE]اسم_الملف|# العنوان\n\nالمحتوى...[/MD_FILE]`
           : isTXT
@@ -566,6 +592,8 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
 
         if (isHTML) {
           htmlMatch = fallbackText.match(/\[HTML_FILE\]([\s\S]*?)\[\/HTML_FILE\]/)
+        } else if (isJSON) {
+          jsonMatch = fallbackText.match(/\[JSON_FILE\]([\s\S]*?)\[\/JSON_FILE\]/)
         } else if (isMD) {
           mdMatch = fallbackText.match(/\[MD_FILE\]([\s\S]*?)\[\/MD_FILE\]/)
         } else if (isTXT) {
@@ -576,7 +604,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
           excelMatch = fallbackText.match(/\[EXCEL_FILE\]([\s\S]*?)\[\/EXCEL_FILE\]/)
         }
 
-        if (excelMatch || pdfMatch || htmlMatch || mdMatch || txtMatch) {
+        if (excelMatch || pdfMatch || htmlMatch || mdMatch || txtMatch || jsonMatch) {
           console.log(`[FALLBACK] Successfully extracted ${fileType} tag from fallback call.`)
         } else {
           console.warn('[FALLBACK] Fallback call also did not produce a file tag.')
@@ -594,12 +622,13 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       .replace(/\[HTML_FILE\][\s\S]*?\[\/HTML_FILE\]/g, '')
       .replace(/\[MD_FILE\][\s\S]*?\[\/MD_FILE\]/g, '')
       .replace(/\[TXT_FILE\][\s\S]*?\[\/TXT_FILE\]/g, '')
+      .replace(/\[JSON_FILE\][\s\S]*?\[\/JSON_FILE\]/g, '')
       .trim()
 
     // If AI sent only a file tag with no text, add a default confirmation message
-    const hadFileTag = excelMatch || pdfMatch || htmlMatch || mdMatch || txtMatch
+    const hadFileTag = excelMatch || pdfMatch || htmlMatch || mdMatch || txtMatch || jsonMatch
     if (hadFileTag && !cleanResponse) {
-      const fileType = excelMatch ? 'Excel' : pdfMatch ? 'PDF' : htmlMatch ? 'HTML' : mdMatch ? 'Markdown' : 'نصي'
+      const fileType = excelMatch ? 'Excel' : pdfMatch ? 'PDF' : htmlMatch ? 'HTML' : mdMatch ? 'Markdown' : jsonMatch ? 'JSON' : 'نصي'
       cleanResponse = `جاري إنشاء ملف ${fileType} بالبيانات المطلوبة… ستجد زر التحميل في لوحة الملفات بعد لحظات.`
     }
 
@@ -737,6 +766,28 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         generatedFile = gf.rows[0]
         console.log('[TXT] File saved:', tf.storedName)
       } catch (e) { console.error('TXT generation error:', e.message, e.stack) }
+    } else if (jsonMatch) {
+      try {
+        const rawJson = jsonMatch[1].trim()
+        const pipeIdx = rawJson.indexOf('|')
+        let filename, jsonContent
+        if (pipeIdx !== -1) {
+          filename = rawJson.slice(0, pipeIdx).trim().replace(/\.json$/i, '') || ('بيانات_' + Date.now())
+          jsonContent = rawJson.slice(pipeIdx + 1).trim()
+        } else {
+          filename = 'بيانات_' + Date.now()
+          jsonContent = rawJson
+        }
+        // Pretty-print if valid JSON
+        try { jsonContent = JSON.stringify(JSON.parse(jsonContent), null, 2) } catch {}
+        const jf = generateJSONFile(jsonContent, filename)
+        const gf = await db.query(
+          'INSERT INTO generated_files (project_id, message_id, original_name, stored_name, file_type, file_size) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+          [req.params.projectId, aiMsgResult.rows[0].id, jf.originalName, jf.storedName, 'json', jf.fileSize || null]
+        )
+        generatedFile = gf.rows[0]
+        console.log('[JSON] File saved:', jf.storedName)
+      } catch (e) { console.error('JSON generation error:', e.message, e.stack) }
     }
 
     await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [req.params.projectId])

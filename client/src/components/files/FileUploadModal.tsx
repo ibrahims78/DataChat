@@ -47,6 +47,7 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
       'application/msword': ['.doc'],
       'text/markdown': ['.md'],
       'text/plain': ['.txt'],
+      'application/json': ['.json'],
     }
   })
 

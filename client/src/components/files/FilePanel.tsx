@@ -29,8 +29,8 @@ interface Props {
   onUpload: () => void
 }
 
-const typeIcons: Record<string, string> = { excel: '📊', csv: '📋', pdf: '📄', word: '📝', html: '🌐', markdown: '📑', text: '📃' }
-const genTypeIcons: Record<string, string> = { excel: '📊', pdf: '📄', html: '🌐', markdown: '📑', text: '📃' }
+const typeIcons: Record<string, string> = { excel: '📊', csv: '📋', pdf: '📄', word: '📝', html: '🌐', markdown: '📑', text: '📃', json: '🗂️' }
+const genTypeIcons: Record<string, string> = { excel: '📊', pdf: '📄', html: '🌐', markdown: '📑', text: '📃', json: '🗂️' }
 
 function formatSize(bytes: number) {
   if (!bytes) return ''
@@ -320,7 +320,7 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
               className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="فتح في Excel">
               <Download size={11} />
             </button>
-          ) : (f.file_type === 'markdown' || f.file_type === 'text') ? (
+          ) : (f.file_type === 'markdown' || f.file_type === 'text' || f.file_type === 'json') ? (
             <>
               <button onClick={() => showPreview(f)}
                 className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="معاينة">
@@ -619,6 +619,11 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
               ) : preview.type === 'markdown' ? (
                 <div>
                   <p className="text-xs text-[var(--muted)] mb-2">معاينة Markdown</p>
+                  <pre className="text-sm text-[var(--text)] whitespace-pre-wrap leading-relaxed bg-[var(--bg)] rounded-lg p-4 font-mono overflow-x-auto">{preview.text}{preview.text?.length >= 1000 ? '...' : ''}</pre>
+                </div>
+              ) : preview.type === 'json' ? (
+                <div>
+                  <p className="text-xs text-[var(--muted)] mb-2">معاينة JSON</p>
                   <pre className="text-sm text-[var(--text)] whitespace-pre-wrap leading-relaxed bg-[var(--bg)] rounded-lg p-4 font-mono overflow-x-auto">{preview.text}{preview.text?.length >= 1000 ? '...' : ''}</pre>
                 </div>
               ) : preview.type === 'error' ? (

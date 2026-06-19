@@ -24,7 +24,7 @@ const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc', '.md', '.txt']
+    const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc', '.md', '.txt', '.json']
     const ext = path.extname(file.originalname).toLowerCase()
     if (allowed.includes(ext)) cb(null, true)
     else cb(new Error('File type not supported'))
@@ -36,7 +36,7 @@ function getFileType(filename) {
   const map = {
     '.xlsx': 'excel', '.xlsm': 'excel', '.xls': 'excel',
     '.csv': 'csv', '.pdf': 'pdf', '.docx': 'word', '.doc': 'word',
-    '.md': 'markdown', '.txt': 'text'
+    '.md': 'markdown', '.txt': 'text', '.json': 'json'
   }
   return map[ext] || 'unknown'
 }
@@ -71,6 +71,15 @@ async function getFilePreview(filePath, fileType) {
     if (fileType === 'markdown' || fileType === 'text') {
       const content = fs.readFileSync(filePath, 'utf8')
       return { type: fileType === 'markdown' ? 'markdown' : 'text', text: content.substring(0, 1000) }
+    }
+    if (fileType === 'json') {
+      const content = fs.readFileSync(filePath, 'utf8')
+      try {
+        const parsed = JSON.parse(content)
+        return { type: 'json', text: JSON.stringify(parsed, null, 2).substring(0, 1000) }
+      } catch {
+        return { type: 'json', text: content.substring(0, 1000) }
+      }
     }
   } catch (e) {
     return { type: 'error', message: e.message }
