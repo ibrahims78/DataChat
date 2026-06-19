@@ -124,13 +124,16 @@ export default function ProjectPage() {
             const data = JSON.parse(line.slice(6))
             if (data.type === 'text') {
               fullText += data.content
-              // Strip file command tags (complete and partial) from displayed text in real-time
-              const displayText = fullText
-                .replace(/\[EXCEL_FILE\][\s\S]*?\[\/EXCEL_FILE\]/g, '')
-                .replace(/\[PDF_FILE\][\s\S]*?\[\/PDF_FILE\]/g, '')
-                .replace(/\[EXCEL_FILE\][\s\S]*$/g, '')
-                .replace(/\[PDF_FILE\][\s\S]*$/g, '')
-                .trim()
+              // Strip ALL file command tags (complete and partial) from displayed text in real-time
+              const FILE_TAGS = ['EXCEL_FILE', 'PDF_FILE', 'HTML_FILE', 'MD_FILE', 'TXT_FILE', 'JSON_FILE']
+              let displayText = fullText
+              for (const tag of FILE_TAGS) {
+                // Remove complete tags
+                displayText = displayText.replace(new RegExp(`\\[${tag}\\][\\s\\S]*?\\[\\/${tag}\\]`, 'g'), '')
+                // Remove partial/incomplete tags still streaming
+                displayText = displayText.replace(new RegExp(`\\[${tag}\\][\\s\\S]*$`, 'g'), '')
+              }
+              displayText = displayText.trim()
               setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: displayText } : m))
             } else if (data.type === 'update_content') {
               fullText = data.content
