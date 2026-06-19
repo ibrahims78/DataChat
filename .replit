@@ -2,6 +2,7 @@ modules = ["nodejs-20", "web", "bash"]
 [agent]
 expertMode = true
 stack = "BEST_EFFORT_FALLBACK"
+integrations = ["javascript_gemini_ai_integrations:2.0.0"]
 
 [nix]
 channel = "stable-25_05"
@@ -9,7 +10,7 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-JWT_SECRET = "datachat-jwt-secret-2026-replit-secure"
+JWT_SECRET = "datachat-jwt-secret-tzfg2layhgpd3vba0hcgud"
 NODE_ENV = "development"
 PORT = "3001"
 
@@ -44,7 +45,3 @@ externalPort = 3001
 [[ports]]
 localPort = 5000
 externalPort = 80
-
-[[ports]]
-localPort = 5001
-externalPort = 3002
