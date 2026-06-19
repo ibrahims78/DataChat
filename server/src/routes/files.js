@@ -24,10 +24,7 @@ const storage = multer.diskStorage({
   }
 })
 
-const chunkStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, CHUNKS_DIR),
-  filename: (req, file, cb) => cb(null, `${req.body.uploadId}-${req.body.chunkIndex}`)
-})
+const chunkStorage = multer.memoryStorage()
 
 const upload = multer({
   storage,
@@ -251,9 +248,12 @@ router.patch('/:projectId/reorder-generated', async (req, res) => {
 router.post('/:projectId/upload-chunk', uploadChunk.single('chunk'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No chunk received' })
-    res.json({ ok: true, chunkIndex: req.body.chunkIndex })
+    const { uploadId, chunkIndex } = req.body
+    if (!uploadId || chunkIndex === undefined) return res.status(400).json({ error: 'Missing uploadId or chunkIndex' })
+    const chunkPath = path.join(CHUNKS_DIR, `${uploadId}-${chunkIndex}`)
+    fs.writeFileSync(chunkPath, req.file.buffer)
+    res.json({ ok: true, chunkIndex })
   } catch (err) {
-    if (req.file?.path) fs.unlink(req.file.path, () => {})
     res.status(500).json({ error: err.message })
   }
 })
