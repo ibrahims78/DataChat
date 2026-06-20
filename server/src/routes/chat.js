@@ -107,6 +107,17 @@ function resolveUploadPath(file) {
   return path.join(UPLOADS_DIR, file.stored_name)
 }
 
+// Build the correct public URL for a file (matches whichever disk path the file lives at)
+function resolveFileUrl(file) {
+  if (file.user_id && file.project_id) {
+    const newRel = `users/user_${padId(file.user_id)}/projects/project_${padId(file.project_id)}/${file.stored_name}`
+    if (fs.existsSync(path.join(UPLOADS_DIR, newRel))) return `/uploads/${newRel}`
+    const legacyRel = `users/${file.user_id}/projects/${file.project_id}/${file.stored_name}`
+    if (fs.existsSync(path.join(UPLOADS_DIR, legacyRel))) return `/uploads/${legacyRel}`
+  }
+  return `/uploads/${file.stored_name}`
+}
+
 async function extractFileContent(file) {
   const filePath = resolveUploadPath(file)
   try {
@@ -504,11 +515,7 @@ async function buildContentPreview(file) {
   }
 
   if (ft === 'image') {
-    // Build the URL that matches whichever path the file actually lives at
-    const newRelPath = `users/user_${padId(file.user_id)}/projects/project_${padId(file.project_id)}/${file.stored_name}`
-    const legacyRelPath = `users/${file.user_id}/projects/${file.project_id}/${file.stored_name}`
-    const imageRelPath = fs.existsSync(path.join(UPLOADS_DIR, newRelPath)) ? newRelPath : legacyRelPath
-    const imageUrl = `/uploads/${imageRelPath}`
+    const imageUrl = resolveFileUrl(file)
     return {
       type: 'image',
       html: `<div style="text-align:center;padding:8px"><img src="${imageUrl}" alt="${file.original_name}" style="max-width:100%;max-height:480px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15)" /></div>`
@@ -1106,14 +1113,14 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         )
         if (spFileRow.rows.length) {
           const spFile = spFileRow.rows[0]
-          const fileUrl = `/uploads/${spFile.stored_name}`
+          const fileUrl = resolveFileUrl(spFile)
           pagePreviewData = { fileUrl, page: spPage, filename: spFile.original_name }
           // Embed marker in cleanResponse so it persists in DB
           const marker = `\n@@PAGE_PREVIEW@@${JSON.stringify(pagePreviewData)}@@END_PREVIEW@@`
           cleanResponse = (cleanResponse || 'إليك الصفحة المطلوبة:') + marker
           // Notify client immediately for streaming display
           res.write(`data: ${JSON.stringify({ type: 'page_preview', ...pagePreviewData })}\n\n`)
-          console.log(`[SHOW_PAGE] Serving page ${spPage} of "${spFile.original_name}"`)
+          console.log(`[SHOW_PAGE] Serving page ${spPage} of "${spFile.original_name}" → ${fileUrl}`)
         } else {
           console.warn('[SHOW_PAGE] File not found:', spFilename)
           cleanResponse = (cleanResponse || '') + `\nلم يتم العثور على الملف: ${spFilename}`
@@ -1546,10 +1553,11 @@ router.post('/:projectId/submit-response', async (req, res) => {
         )
         if (spFileRow.rows.length) {
           const spFile = spFileRow.rows[0]
-          const fileUrl = `/uploads/${spFile.stored_name}`
+          const fileUrl = resolveFileUrl(spFile)
           pagePreviewData = { fileUrl, page: spPage, filename: spFile.original_name }
           const marker = `\n@@PAGE_PREVIEW@@${JSON.stringify(pagePreviewData)}@@END_PREVIEW@@`
           cleanResponse = (cleanResponse || 'إليك الصفحة المطلوبة:') + marker
+          console.log(`[SHOW_PAGE] Serving page ${spPage} of "${spFile.original_name}" → ${fileUrl}`)
         }
       } catch (e) { console.error('SHOW_PAGE error:', e.message) }
     }
