@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "./node_modules/.bin/concurrently --kill-others-on-fail \"node server/src/index.js\" \"cd client && ../node_modules/.bin/vite --port 5000 --host 0.0.0.0\"",
+    "dev": "./node_modules/.bin/concurrently --kill-others-on-fail \"node --watch server/src/index.js\" \"cd client && ../node_modules/.bin/vite --port 5000 --host 0.0.0.0\"",
     "start": "node server/src/index.js"
   },
   "dependencies": {
