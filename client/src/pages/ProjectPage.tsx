@@ -130,7 +130,7 @@ export default function ProjectPage() {
             if (data.type === 'text') {
               fullText += data.content
               // Strip ALL file command tags (complete and partial) from displayed text in real-time
-              const FILE_TAGS = ['EXCEL_FILE', 'PDF_FILE', 'HTML_FILE', 'MD_FILE', 'TXT_FILE', 'JSON_FILE', 'WORD_FILE', 'EXTRACT_PAGE', 'SHOW_PAGE']
+              const FILE_TAGS = ['EXCEL_FILE', 'PDF_FILE', 'HTML_FILE', 'MD_FILE', 'TXT_FILE', 'JSON_FILE', 'WORD_FILE', 'EXTRACT_PAGE', 'SHOW_PAGE', 'SHOW_CONTENT']
               let displayText = fullText
               for (const tag of FILE_TAGS) {
                 displayText = displayText.replace(new RegExp(`\\[${tag}\\][\\s\\S]*?\\[\\/${tag}\\]`, 'g'), '')
@@ -141,7 +141,10 @@ export default function ProjectPage() {
             } else if (data.type === 'update_content') {
               fullText = data.content
               // Strip the PAGE_PREVIEW marker from displayed text (it's only for DB storage)
-              const displayContent = data.content.replace(/\n@@PAGE_PREVIEW@@[\s\S]*?@@END_PREVIEW@@/g, '').trim()
+              const displayContent = data.content
+                .replace(/\n@@PAGE_PREVIEW@@[\s\S]*?@@END_PREVIEW@@/g, '')
+                .replace(/\n@@CONTENT_PREVIEW@@[\s\S]*?@@END_CONTENT_PREVIEW@@/g, '')
+                .trim()
               setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: displayContent } : m))
             } else if (data.type === 'page_preview') {
               const tempId = tempAiIdRef.current

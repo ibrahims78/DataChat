@@ -168,7 +168,8 @@ export default function ChatMessages({ messages, isTyping, typingStep, projectId
                     const sessionCp = contentPreviews[msg.id]
                     const { cp: storedCp, cleanContent } = parseContentPreview(cleanAfterPage)
                     const cp = sessionCp || storedCp
-                    const displayContent = sessionPreview ? msg.content : (sessionCp ? cleanAfterPage : cleanContent)
+                    // Always use fully-cleaned content — avoids showing raw markers when DB messages reload
+                    const displayContent = cleanContent
                     return (
                   <div className="chat-bubble-ai">
                     <div className="prose prose-sm max-w-none dark:prose-invert text-[var(--text)] text-sm">
