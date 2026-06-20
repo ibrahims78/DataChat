@@ -374,6 +374,19 @@ const AMIRI_BOLD    = path.join(__dirname, '../../assets/fonts/Amiri-Bold.ttf')
 // Normalise text so every codepoint is guaranteed to be in Amiri.
 // Amiri covers Arabic, Latin-1, and most common Unicode symbols.
 // We only need to map the tiny set of chars that fall outside its coverage.
+// Prepare Arabic text for LTR rendering engine with align:'right'
+// PDFKit renders LTR, so we reverse the word order so that words appear
+// in correct RTL visual order when right-aligned on the page.
+// Character order within each word is kept — fontkit handles glyph shaping.
+function processRTL(text) {
+  if (!text) return text
+  const hasArabic = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text)
+  if (!hasArabic) return text
+  // Split on whitespace (keep delimiters), reverse, rejoin
+  const tokens = text.split(/(\s+)/)
+  return tokens.reverse().join('')
+}
+
 function cleanArabicText(text) {
   return (text || '')
     // 1. Strip Arabic diacritical marks (harakat) — they trigger a fontkit GPOS crash
@@ -433,12 +446,12 @@ async function generatePDFFile(pdfData, filename) {
   // ── Header ─────────────────────────────────────────────────────────────────
   doc.rect(0, 0, W, 88).fill('#7C3AED')
   doc.rect(0, 84, W, 4).fill('#5B21B6')
-  safeText(title, ML, 20, { width: CW, align: 'right' }, FB, 22, '#FFFFFF')
+  safeText(processRTL(title), ML, 20, { width: CW, align: 'right' }, FB, 22, '#FFFFFF')
   safeText('DataChat', ML, 62, { width: CW, align: 'right' }, F, 10, '#DDD6FE')
 
   // ── Date strip ──────────────────────────────────────────────────────────────
   doc.rect(0, 88, W, 26).fill('#F5F3FF')
-  safeText(`${dateStr}`, ML, 99, { width: CW, align: 'right' }, F, 9, '#6D28D9')
+  safeText(processRTL(dateStr), ML, 99, { width: CW, align: 'right' }, F, 9, '#6D28D9')
 
   doc.y = 130
 
@@ -457,31 +470,34 @@ async function generatePDFFile(pdfData, filename) {
     if (line.startsWith('# ')) {
       doc.moveDown(0.5)
       doc.rect(ML - 8, doc.y - 2, CW + 16, 30).fill('#F5F3FF')
-      safeText(line.slice(2), ML, doc.y + 5, { width: CW, align: 'right' }, FB, 16, '#5B21B6')
+      safeText(processRTL(line.slice(2)), ML, doc.y + 5, { width: CW, align: 'right' }, FB, 16, '#5B21B6')
       doc.moveDown(1.3).fillColor('#1F2937')
 
     } else if (line.startsWith('## ')) {
       doc.moveDown(0.4)
-      safeText(line.slice(3), ML, doc.y, { width: CW, align: 'right' }, FB, 13, '#7C3AED')
+      safeText(processRTL(line.slice(3)), ML, doc.y, { width: CW, align: 'right' }, FB, 13, '#7C3AED')
       doc.moveDown(0.15)
       doc.moveTo(ML, doc.y).lineTo(W - MR, doc.y).lineWidth(0.5).strokeColor('#DDD6FE').stroke()
       doc.moveDown(0.4).fillColor('#1F2937')
 
     } else if (/^[-\u2022*]\s/.test(line)) {
-      const txt = line.replace(/^[-\u2022*]\s+/, '') + '  \u2022'
+      const txt = processRTL(line.replace(/^[-\u2022*]\s+/, '')) + '  \u2022'
       safeText(txt, ML + 12, doc.y, { width: CW - 12, align: 'right', lineGap: 2 }, F, 12, '#374151')
       doc.moveDown(0.2)
 
     } else if (/^\d+\.\s/.test(line)) {
-      safeText(line, ML + 12, doc.y, { width: CW - 12, align: 'right', lineGap: 2 }, F, 12, '#374151')
+      // Numbered list: extract number + content, process content RTL, keep number at end
+      const numMatch = line.match(/^(\d+\.\s*)(.*)$/)
+      const txt = numMatch ? processRTL(numMatch[2]) + '  ' + numMatch[1].trim() : processRTL(line)
+      safeText(txt, ML + 12, doc.y, { width: CW - 12, align: 'right', lineGap: 2 }, F, 12, '#374151')
       doc.moveDown(0.2)
 
     } else if (line.startsWith('**') && line.endsWith('**')) {
-      safeText(line.replace(/\*\*/g, ''), ML, doc.y, { width: CW, align: 'right' }, FB, 12, '#111827')
+      safeText(processRTL(line.replace(/\*\*/g, '')), ML, doc.y, { width: CW, align: 'right' }, FB, 12, '#111827')
       doc.moveDown(0.3)
 
     } else {
-      safeText(line, ML, doc.y, { width: CW, align: 'right', lineGap: 3 }, F, 12, '#1F2937')
+      safeText(processRTL(line), ML, doc.y, { width: CW, align: 'right', lineGap: 3 }, F, 12, '#1F2937')
       doc.moveDown(0.25)
     }
   }
