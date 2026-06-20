@@ -275,6 +275,8 @@ router.post('/settings/test-api', async (req, res) => {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
             'Accept': 'application/json',
             'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://agentrouter.org/',
+            'Origin': 'https://agentrouter.org',
           },
           body: JSON.stringify({
             model: arModel,
@@ -284,7 +286,12 @@ router.post('/settings/test-api', async (req, res) => {
           })
         })
         const arText = await arRes.text()
+        const arContentType = arRes.headers.get('content-type') || ''
         console.log(`[AgentRouter Test] status=${arRes.status} body=${arText.substring(0,300)}`)
+        // WAF returns 200 + HTML challenge page — detect and reject
+        if (arContentType.includes('text/html') || arText.trimStart().startsWith('<')) {
+          return res.status(400).json({ error: 'الخادم محجوب من WAF (Aliyun) — agentrouter.org يحجب طلبات السيرفر. يرجى استخدام مزود آخر كـ Gemini.' })
+        }
         if (arRes.ok) {
           return res.json({ success: true, message: 'مفتاح AgentRouter API صحيح ويعمل بشكل جيد ✓' })
         }

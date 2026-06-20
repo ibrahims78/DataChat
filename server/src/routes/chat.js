@@ -838,14 +838,18 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
           'Accept': 'text/event-stream',
           'Accept-Language': 'en-US,en;q=0.9',
+          'Referer': 'https://agentrouter.org/',
+          'Origin': 'https://agentrouter.org',
         },
         body: JSON.stringify({ model, messages: chatMessages, temperature, stream: true })
       })
-      if (!arRes.ok) {
+      const contentType = arRes.headers.get('content-type') || ''
+      if (!arRes.ok || contentType.includes('text/html')) {
         const errText = await arRes.text()
         let errMsg = `خطأ ${arRes.status}`
         try { errMsg = JSON.parse(errText)?.error?.message || JSON.parse(errText)?.message || errMsg } catch {}
-        if (errText.includes('content-blocked')) errMsg = `محجوب من WAF (content-blocked) — تحقق من إعدادات agentrouter.org`
+        if (errText.includes('content-blocked')) errMsg = `محجوب من WAF (content-blocked)`
+        if (contentType.includes('text/html') || errText.trimStart().startsWith('<')) errMsg = `الخادم محجوب من WAF (Aliyun) — يرجى المحاولة لاحقاً أو استخدام مزود آخر كـ Gemini`
         throw new Error(errMsg)
       }
       const reader = arRes.body.getReader()
