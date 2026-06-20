@@ -106,9 +106,9 @@ router.post('/users/invite', async (req, res) => {
     const token = uuidv4()
     const expires = new Date(Date.now() + 48 * 60 * 60 * 1000)
     await db.query('INSERT INTO invite_tokens (email, token, created_by, expires_at) VALUES ($1,$2,$3,$4)', [email, token, req.user.id, expires])
-    const origin = process.env.REPLIT_DEV_DOMAIN
-      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-      : `http://localhost:${process.env.PORT || 3001}`
+    const origin = req.headers.origin
+      || (req.headers.referer ? new URL(req.headers.referer).origin : null)
+      || (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : `http://localhost:5000`)
     const inviteLink = `${origin}/register?token=${token}`
 
     const mailer = await getMailer()
