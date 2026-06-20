@@ -28,6 +28,15 @@ app.use('/api/admin', require('./routes/admin'))
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }))
 
+// Serve React build in production
+if (process.env.NODE_ENV === 'production') {
+  const clientDist = path.join(__dirname, '../../client/dist')
+  app.use(express.static(clientDist))
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'))
+  })
+}
+
 app.use((err, req, res, next) => {
   console.error(err.stack)
   if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'File too large. Max 50MB.' })
