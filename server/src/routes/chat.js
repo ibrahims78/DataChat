@@ -88,8 +88,19 @@ function getGenAI(apiKey) {
   return new GoogleGenerativeAI(apiKey || process.env.GEMINI_API_KEY || '')
 }
 
+const UPLOADS_DIR = path.join(__dirname, '../../../uploads')
+
+// Resolve stored file to its absolute path — checks structured path first, falls back to flat
+function resolveUploadPath(file) {
+  if (file.user_id && file.project_id) {
+    const structured = path.join(UPLOADS_DIR, 'users', String(file.user_id), 'projects', String(file.project_id), file.stored_name)
+    if (fs.existsSync(structured)) return structured
+  }
+  return path.join(UPLOADS_DIR, file.stored_name)
+}
+
 async function extractFileContent(file) {
-  const filePath = path.join(__dirname, '../../../uploads', file.stored_name)
+  const filePath = resolveUploadPath(file)
   try {
     if (file.file_type === 'excel') {
       const wb = XLSX.readFile(filePath)
@@ -281,8 +292,7 @@ async function generateWordFile(content, filename) {
 
 // Convert any uploaded file to an HTML snippet for in-chat preview
 async function buildContentPreview(file) {
-  const uploadsBase = path.join(__dirname, '../../../uploads')
-  const filePath = path.join(uploadsBase, file.stored_name)
+  const filePath = resolveUploadPath(file)
   const ft = file.file_type
 
   if (ft === 'excel') {
@@ -623,7 +633,7 @@ router.post('/:projectId/message', async (req, res) => {
 
     // Run all DB queries in parallel
     const [filesResult, settingsResult, historyResult] = await Promise.all([
-      db.query('SELECT * FROM files WHERE project_id=$1', [req.params.projectId]),
+      db.query('SELECT f.*, p.user_id FROM files f JOIN projects p ON p.id=f.project_id WHERE f.project_id=$1', [req.params.projectId]),
       db.query('SELECT * FROM ai_settings WHERE id=1'),
       db.query('SELECT role, content FROM messages WHERE conversation_id=$1 ORDER BY created_at DESC LIMIT 20', [conversationId])
     ])
@@ -848,7 +858,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         const spFilename = spData.filename || ''
         const spPage = parseInt(spData.page) || 1
         const spFileRow = await db.query(
-          `SELECT * FROM files WHERE project_id=$1 AND (original_name ILIKE $2 OR original_name ILIKE $3) ORDER BY created_at DESC LIMIT 1`,
+          `SELECT f.*, p.user_id FROM files f JOIN projects p ON p.id=f.project_id WHERE f.project_id=$1 AND (f.original_name ILIKE $2 OR f.original_name ILIKE $3) ORDER BY f.created_at DESC LIMIT 1`,
           [req.params.projectId, `%${spFilename}%`, `%${path.basename(spFilename, path.extname(spFilename))}%`]
         )
         if (spFileRow.rows.length) {
@@ -1060,14 +1070,13 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
 
         // Find the source file in the project
         const fileRow = await db.query(
-          `SELECT * FROM files WHERE project_id=$1 AND (original_name ILIKE $2 OR original_name ILIKE $3) ORDER BY created_at DESC LIMIT 1`,
+          `SELECT f.*, p.user_id FROM files f JOIN projects p ON p.id=f.project_id WHERE f.project_id=$1 AND (f.original_name ILIKE $2 OR f.original_name ILIKE $3) ORDER BY f.created_at DESC LIMIT 1`,
           [req.params.projectId, `%${srcFilename}%`, `%${path.basename(srcFilename, path.extname(srcFilename))}%`]
         )
         if (!fileRow.rows.length) throw new Error(`لم يتم العثور على الملف: ${srcFilename}`)
 
         const srcFile = fileRow.rows[0]
-        const uploadsBase = path.join(__dirname, '../../../uploads')
-        const srcPath = path.join(uploadsBase, srcFile.stored_name)
+        const srcPath = resolveUploadPath(srcFile)
         if (!fs.existsSync(srcPath)) throw new Error(`ملف المصدر غير موجود على القرص: ${srcFile.stored_name}`)
 
         console.log(`[EXTRACT] Extracting pages ${JSON.stringify(pages)} from "${srcFile.original_name}"`)
