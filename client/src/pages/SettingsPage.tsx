@@ -436,7 +436,7 @@ export default function SettingsPage() {
               <div className="mt-2 flex items-start gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
                 <span className="mt-0.5 shrink-0">⚡</span>
                 <p className="text-xs text-blue-700 dark:text-blue-300">
-                  <strong>وضع المتصفح المباشر:</strong> الطلبات تُرسل من متصفحك مباشرةً إلى agentrouter.org — يتجاوز قيود الخادم ويدعم نماذج متعددة (DeepSeek, Claude, GPT, Gemini…).
+                  <strong>AgentRouter:</strong> يدعم نماذج متعددة (DeepSeek, Claude, GPT, Gemini…) — الطلبات تُرسل عبر الخادم باستخدام مفتاحك.
                 </p>
               </div>
             )}
@@ -490,21 +490,11 @@ export default function SettingsPage() {
                 </div>
               )}
             </div>
-            {apiTestResult && (apiTestResult as any).warn === 'agentrouter-waf' && (
-              <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
-                <span className="shrink-0 mt-0.5">🔒</span>
-                <div className="text-xs text-amber-700 dark:text-amber-300 space-y-1">
-                  <p><strong>بيئة التطوير محجوبة من agentrouter.org</strong></p>
-                  <p>خوادم Replit السحابية مُدرجة في قائمة حجب WAF الخاص بـ agentrouter. هذا طبيعي تماماً في بيئة التطوير.</p>
-                  <p>✅ <strong>بعد النشر</strong>: الطلبات ستخرج من متصفحك مباشرةً (IP منزلي) وستعمل بدون مشاكل.</p>
-                </div>
-              </div>
-            )}
             <p className="text-xs text-[var(--muted)]">
               {aiSettings.provider === 'agentrouter' ? (
                 <>احصل على مفتاحك من{' '}
                   <a href="https://agentrouter.org/console/token" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">agentrouter.org/console/token</a>.
-                  المفتاح يُستخدم مباشرة من متصفحك ولا يُرسل للخادم إلا للحفظ المشفّر.</>
+                  المفتاح يُحفظ بشكل آمن على الخادم ويُستخدم للاتصال بـ agentrouter.org.</>
               ) : aiSettings.provider === 'openai' ? (
                 <>احصل على مفتاحك من{' '}
                   <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">platform.openai.com/api-keys</a>.

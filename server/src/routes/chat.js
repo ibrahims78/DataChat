@@ -823,57 +823,75 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
     const systemText = FILE_GEN_PROTOCOL
 
     const provider = aiConfig.provider || 'gemini'
-    const selectedModel = aiConfig.model || (provider === 'openai' ? 'gpt-4o-mini' : 'gemini-2.5-flash')
+    const selectedModel = aiConfig.model || (provider === 'openai' ? 'gpt-4o-mini' : provider === 'agentrouter' ? 'deepseek/deepseek-chat-v3-0324' : 'gemini-2.5-flash')
     const genAI = getGenAI(aiConfig.api_key)
 
     let fullResponse = ''
 
-    if (provider === 'openai') {
-      const apiKey = aiConfig.api_key || process.env.OPENAI_API_KEY || ''
+    // Helper: stream OpenAI-compatible endpoint (used for both OpenAI and AgentRouter)
+    const streamOpenAICompatible = async (endpoint, apiKey, model, chatMessages, temperature) => {
+      const arRes = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'application/json, text/event-stream',
+          'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive',
+        },
+        body: JSON.stringify({ model, messages: chatMessages, temperature, stream: true })
+      })
+      if (!arRes.ok) {
+        const errText = await arRes.text()
+        let errMsg = `خطأ ${arRes.status}`
+        try { errMsg = JSON.parse(errText)?.error?.message || JSON.parse(errText)?.message || errMsg } catch {}
+        if (errText.includes('content-blocked')) errMsg = `محجوب من WAF (content-blocked) — تحقق من إعدادات agentrouter.org`
+        throw new Error(errMsg)
+      }
+      const reader = arRes.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() || ''
+        for (const line of lines) {
+          const t = line.trim()
+          if (!t || !t.startsWith('data: ')) continue
+          const data = t.slice(6)
+          if (data === '[DONE]') continue
+          try {
+            const parsed = JSON.parse(data)
+            const delta = parsed.choices?.[0]?.delta?.content
+            if (delta) { fullResponse += delta; res.write(`data: ${JSON.stringify({ type: 'text', content: delta })}\n\n`) }
+          } catch {}
+        }
+      }
+    }
+
+    if (provider === 'openai' || provider === 'agentrouter') {
+      const isAR = provider === 'agentrouter'
+      const endpoint = isAR ? 'https://agentrouter.org/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions'
+      const envKey = isAR ? process.env.AGENTROUTER_API_KEY : process.env.OPENAI_API_KEY
+      const apiKey = aiConfig.api_key || envKey || ''
+      const providerName = isAR ? 'AgentRouter' : 'OpenAI'
       if (!apiKey) {
-        fullResponse = 'عذراً، لم يتم ضبط مفتاح OpenAI API. يرجى إضافته في الإعدادات.'
+        fullResponse = `عذراً، لم يتم ضبط مفتاح ${providerName} API. يرجى إضافته في الإعدادات.`
         res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
       } else {
-        const openaiMessages = [
+        const chatMessages = [
           { role: 'system', content: systemText },
           ...msgs.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
           { role: 'user', content: message }
         ]
         try {
-          const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-            body: JSON.stringify({ model: selectedModel, messages: openaiMessages, temperature: parseFloat(aiConfig.temperature) || 0.7, stream: true })
-          })
-          if (!openaiRes.ok) {
-            const errText = await openaiRes.text()
-            fullResponse = `عذراً، خطأ من OpenAI (${openaiRes.status}): ${errText.substring(0, 300)}`
-            res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
-          } else {
-            const reader = openaiRes.body.getReader()
-            const decoder = new TextDecoder()
-            let buf = ''
-            while (true) {
-              const { done, value } = await reader.read()
-              if (done) break
-              buf += decoder.decode(value, { stream: true })
-              const lines = buf.split('\n')
-              buf = lines.pop() || ''
-              for (const line of lines) {
-                const t = line.trim()
-                if (!t || !t.startsWith('data: ')) continue
-                const data = t.slice(6)
-                if (data === '[DONE]') continue
-                try {
-                  const parsed = JSON.parse(data)
-                  const delta = parsed.choices?.[0]?.delta?.content
-                  if (delta) { fullResponse += delta; res.write(`data: ${JSON.stringify({ type: 'text', content: delta })}\n\n`) }
-                } catch {}
-              }
-            }
-          }
+          await streamOpenAICompatible(endpoint, apiKey, selectedModel, chatMessages, parseFloat(aiConfig.temperature) || 0.7)
         } catch (aiErr) {
-          fullResponse = `عذراً، حدث خطأ في الاتصال بـ OpenAI: ${aiErr.message}`
+          fullResponse = `عذراً، حدث خطأ في الاتصال بـ ${providerName}: ${aiErr.message}`
           res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
         }
       }
@@ -944,12 +962,20 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
           : `أنشئ ملف Excel للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n${fileContents ? `\nالبيانات المتاحة:\n${fileContents.substring(0, 3000)}` : ''}\n\nالصيغة المطلوبة:\n[EXCEL_FILE]{"filename":"اسم_الملف","sheets":[{"name":"اسم الورقة","headers":["عمود1","عمود2"],"rows":[["قيمة1","قيمة2"]]}]}[/EXCEL_FILE]\n\nأخرج الوسم فقط لا غير.`
 
         let fallbackText = ''
-        if (provider === 'openai') {
-          const apiKey = aiConfig.api_key || process.env.OPENAI_API_KEY || ''
+        if (provider === 'openai' || provider === 'agentrouter') {
+          const fbEndpoint = provider === 'agentrouter' ? 'https://agentrouter.org/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions'
+          const fbEnvKey = provider === 'agentrouter' ? process.env.AGENTROUTER_API_KEY : process.env.OPENAI_API_KEY
+          const apiKey = aiConfig.api_key || fbEnvKey || ''
           if (apiKey) {
-            const oaFbRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            const oaFbRes = await fetch(fbEndpoint, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept': 'application/json',
+                'Accept-Language': 'en-US,en;q=0.9',
+              },
               body: JSON.stringify({ model: selectedModel, messages: [{ role: 'system', content: systemText }, { role: 'user', content: fallbackPrompt }], temperature: 0.3, max_tokens: 4096 })
             })
             if (oaFbRes.ok) { const d = await oaFbRes.json(); fallbackText = d.choices?.[0]?.message?.content || '' }
