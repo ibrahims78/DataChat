@@ -260,36 +260,47 @@ export default function SettingsPage() {
           )}
 
           {editUserTarget && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditUserTarget(null)}>
-              <div className="card p-6 w-full max-w-md animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={() => setEditUserTarget(null)}>
+              <div
+                className="bg-[var(--surface)] border border-[var(--border)] rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-md animate-slide-in-up sm:animate-fade-in max-h-[92vh] overflow-y-auto"
+                onClick={e => e.stopPropagation()}
+              >
                 {/* Header */}
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 font-bold text-base">
-                    {editForm.name.charAt(0) || '؟'}
+                <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-[var(--border)] sticky top-0 bg-[var(--surface)] z-10">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 font-bold text-base shrink-0">
+                      {editForm.name.charAt(0) || '؟'}
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-[var(--text)] text-sm sm:text-base">تعديل المستخدم</h3>
+                      <p className="text-xs text-[var(--muted)] truncate">{editUserTarget.email}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-[var(--text)]">تعديل المستخدم</h3>
-                    <p className="text-xs text-[var(--muted)]">{editUserTarget.email}</p>
-                  </div>
+                  <button
+                    onClick={() => setEditUserTarget(null)}
+                    className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors shrink-0"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
                 </div>
 
-                <div className="space-y-4">
+                <div className="px-5 py-4 space-y-4">
                   {/* Name */}
                   <div>
-                    <label className="block text-sm font-semibold text-[var(--text)] mb-1">الاسم الكامل</label>
+                    <label className="block text-sm font-semibold text-[var(--text)] mb-1.5">الاسم الكامل</label>
                     <input className="input-field" value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} placeholder="اسم المستخدم" />
                   </div>
 
                   {/* Email */}
                   <div>
-                    <label className="block text-sm font-semibold text-[var(--text)] mb-1">البريد الإلكتروني</label>
+                    <label className="block text-sm font-semibold text-[var(--text)] mb-1.5">البريد الإلكتروني</label>
                     <input className="input-field" type="email" value={editForm.email} onChange={e => setEditForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com" />
                   </div>
 
-                  {/* Role + Status row */}
-                  <div className="grid grid-cols-2 gap-3">
+                  {/* Role + Status row — stacks on very small screens */}
+                  <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-semibold text-[var(--text)] mb-1">الدور</label>
+                      <label className="block text-sm font-semibold text-[var(--text)] mb-1.5">الدور</label>
                       <select
                         className="input-field"
                         value={editForm.role}
@@ -301,24 +312,26 @@ export default function SettingsPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-[var(--text)] mb-1">الحالة</label>
+                      <label className="block text-sm font-semibold text-[var(--text)] mb-1.5">الحالة</label>
                       <button
                         type="button"
                         onClick={() => setEditForm(p => ({ ...p, is_active: !p.is_active }))}
-                        className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border-2 text-sm font-semibold transition-all ${
+                        className={`w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border-2 text-sm font-semibold transition-all ${
                           editForm.is_active
                             ? 'border-green-400 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
                             : 'border-red-300 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
                         }`}
                       >
-                        {editForm.is_active ? <><UserCheck size={14} /> مفعّل</> : <><UserX size={14} /> موقوف</>}
+                        {editForm.is_active
+                          ? <><UserCheck size={14} /> مفعّل</>
+                          : <><UserX size={14} /> موقوف</>}
                       </button>
                     </div>
                   </div>
 
                   {/* Password reset section */}
                   <div className="border-t border-[var(--border)] pt-4">
-                    <label className="block text-sm font-semibold text-[var(--text)] mb-1">
+                    <label className="block text-sm font-semibold text-[var(--text)] mb-1.5">
                       تغيير كلمة المرور
                       <span className="font-normal text-[var(--muted)] text-xs me-1"> (اختياري)</span>
                     </label>
@@ -329,9 +342,13 @@ export default function SettingsPage() {
                         placeholder="اتركه فارغاً إن لم تريد التغيير"
                         value={editForm.newPassword}
                         onChange={e => setEditForm(p => ({ ...p, newPassword: e.target.value }))}
+                        autoComplete="new-password"
                       />
-                      <button type="button" onClick={() => setEditForm(p => ({ ...p, showNewPw: !p.showNewPw }))}
-                        className="absolute end-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)] transition-colors">
+                      <button
+                        type="button"
+                        onClick={() => setEditForm(p => ({ ...p, showNewPw: !p.showNewPw }))}
+                        className="absolute end-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)] transition-colors"
+                      >
                         {editForm.showNewPw ? <EyeOff size={15} /> : <Eye size={15} />}
                       </button>
                     </div>
@@ -341,9 +358,10 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="flex gap-3 mt-6 justify-end">
-                  <button onClick={() => setEditUserTarget(null)} className="btn-ghost">{tr('cancel')}</button>
-                  <button onClick={saveEditUser} className="btn-primary flex items-center gap-2">
+                {/* Footer — sticky on mobile */}
+                <div className="flex gap-3 px-5 pb-5 pt-2 justify-end border-t border-[var(--border)] sticky bottom-0 bg-[var(--surface)]">
+                  <button onClick={() => setEditUserTarget(null)} className="btn-ghost flex-1 sm:flex-none">{tr('cancel')}</button>
+                  <button onClick={saveEditUser} className="btn-primary flex items-center justify-center gap-2 flex-1 sm:flex-none">
                     <ShieldCheck size={15} /> حفظ التغييرات
                   </button>
                 </div>

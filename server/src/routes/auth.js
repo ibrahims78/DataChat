@@ -140,4 +140,22 @@ router.post('/complete-onboarding', authenticate, async (req, res) => {
   }
 })
 
+// Change password — available to all authenticated users (admin & employee)
+router.post('/change-password', authenticate, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'جميع الحقول مطلوبة' })
+    if (newPassword.length < 8) return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' })
+    const user = await db.query('SELECT password_hash FROM users WHERE id=$1', [req.user.id])
+    if (!user.rows.length) return res.status(404).json({ error: 'المستخدم غير موجود' })
+    const valid = await bcrypt.compare(currentPassword, user.rows[0].password_hash)
+    if (!valid) return res.status(401).json({ error: 'كلمة المرور الحالية غير صحيحة' })
+    const hash = await bcrypt.hash(newPassword, 12)
+    await db.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, req.user.id])
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 module.exports = router
