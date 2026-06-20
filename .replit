@@ -10,7 +10,6 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-JWT_SECRET = "datachat-jwt-secret-tzfg2layhgpd3vba0hcgud"
 NODE_ENV = "development"
 PORT = "3001"
 

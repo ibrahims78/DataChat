@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* DataChat — Custom CSS Variables and Component Styles */
 :root {
   --bg: #F8F7FF;
