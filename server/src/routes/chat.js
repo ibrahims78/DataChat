@@ -426,7 +426,7 @@ async function generateWordFile(content, filename) {
 
 // Convert any uploaded file to an HTML snippet for in-chat preview
 async function buildContentPreview(file) {
-  const filePath = resolveUploadPath(file)
+  const filePath = file._filePath || resolveUploadPath(file)
   const ft = file.file_type
 
   if (ft === 'excel') {
@@ -1324,12 +1324,31 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       try {
         const scData = repairJSON(showContentMatch[1].trim())
         const scFilename = scData.filename || ''
-        const scFileRow = await db.query(
+        const baseName = `%${path.basename(scFilename, path.extname(scFilename))}%`
+        const likeName = `%${scFilename}%`
+
+        // Search uploaded files first
+        let scFileRow = await db.query(
           `SELECT f.*, p.user_id FROM files f JOIN projects p ON p.id=f.project_id WHERE f.project_id=$1 AND (f.original_name ILIKE $2 OR f.original_name ILIKE $3) ORDER BY f.created_at DESC LIMIT 1`,
-          [req.params.projectId, `%${scFilename}%`, `%${path.basename(scFilename, path.extname(scFilename))}%`]
+          [req.params.projectId, likeName, baseName]
         )
-        if (!scFileRow.rows.length) throw new Error(`لم يتم العثور على الملف: ${scFilename}`)
-        const scFile = scFileRow.rows[0]
+        let scFile = null
+        if (scFileRow.rows.length) {
+          scFile = scFileRow.rows[0]
+        } else {
+          // Fallback: search generated files (AI-created files)
+          const genRow = await db.query(
+            `SELECT *, 'generated' AS _source FROM generated_files WHERE project_id=$1 AND (original_name ILIKE $2 OR original_name ILIKE $3 OR display_name ILIKE $2 OR display_name ILIKE $3) ORDER BY created_at DESC LIMIT 1`,
+            [req.params.projectId, likeName, baseName]
+          )
+          if (!genRow.rows.length) throw new Error(`لم يتم العثور على الملف: ${scFilename}`)
+          const gf = genRow.rows[0]
+          scFile = {
+            ...gf,
+            _filePath: path.join(UPLOADS_DIR, 'generated', gf.stored_name)
+          }
+        }
+
         console.log(`[SHOW_CONTENT] Building preview for "${scFile.original_name}" (${scFile.file_type})`)
         const preview = await buildContentPreview(scFile)
         const contentPreviewData = { html: preview.html, previewType: preview.type, filename: scFile.original_name }
@@ -1529,12 +1548,30 @@ router.post('/:projectId/submit-response', async (req, res) => {
       try {
         const scData = repairJSON(showContentMatch[1].trim())
         const scFilename = scData.filename || ''
-        const scFileRow = await db.query(
+        const baseName = `%${path.basename(scFilename, path.extname(scFilename))}%`
+        const likeName = `%${scFilename}%`
+
+        // Search uploaded files first
+        let scFileRow = await db.query(
           `SELECT f.*, p.user_id FROM files f JOIN projects p ON p.id=f.project_id WHERE f.project_id=$1 AND (f.original_name ILIKE $2 OR f.original_name ILIKE $3) ORDER BY f.created_at DESC LIMIT 1`,
-          [req.params.projectId, `%${scFilename}%`, `%${path.basename(scFilename, path.extname(scFilename))}%`]
+          [req.params.projectId, likeName, baseName]
         )
+        let scFile = null
         if (scFileRow.rows.length) {
-          const scFile = scFileRow.rows[0]
+          scFile = scFileRow.rows[0]
+        } else {
+          // Fallback: search generated files (AI-created files)
+          const genRow = await db.query(
+            `SELECT *, 'generated' AS _source FROM generated_files WHERE project_id=$1 AND (original_name ILIKE $2 OR original_name ILIKE $3 OR display_name ILIKE $2 OR display_name ILIKE $3) ORDER BY created_at DESC LIMIT 1`,
+            [req.params.projectId, likeName, baseName]
+          )
+          if (genRow.rows.length) {
+            const gf = genRow.rows[0]
+            scFile = { ...gf, _filePath: path.join(UPLOADS_DIR, 'generated', gf.stored_name) }
+          }
+        }
+
+        if (scFile) {
           const preview = await buildContentPreview(scFile)
           contentPreviewData = { html: preview.html, previewType: preview.type, filename: scFile.original_name }
           const marker = `\n@@CONTENT_PREVIEW@@${JSON.stringify(contentPreviewData)}@@END_CONTENT_PREVIEW@@`
