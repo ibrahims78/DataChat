@@ -30,6 +30,7 @@ export default function ProjectPage() {
   const [showUpload, setShowUpload] = useState(false)
   const [streamBuffer, setStreamBuffer] = useState('')
   const [messagePreviews, setMessagePreviews] = useState<Record<number, { fileUrl: string; page: number; filename: string }>>({})
+  const [contentPreviews, setContentPreviews] = useState<Record<number, { html: string; previewType: string; filename: string }>>({})
   const tempAiIdRef = useRef<number>(0)
 
   const fetchProject = async () => {
@@ -144,6 +145,9 @@ export default function ProjectPage() {
             } else if (data.type === 'page_preview') {
               const tempId = tempAiIdRef.current
               setMessagePreviews(prev => ({ ...prev, [tempId]: { fileUrl: data.fileUrl, page: data.page, filename: data.filename } }))
+            } else if (data.type === 'content_preview') {
+              const tempId = tempAiIdRef.current
+              setContentPreviews(prev => ({ ...prev, [tempId]: { html: data.html, previewType: data.previewType, filename: data.filename } }))
             } else if (data.type === 'done') {
               if (data.generatedFile) {
                 setProject(p => p ? { ...p, generated_files: [...p.generated_files, data.generatedFile] } : p)
@@ -152,11 +156,17 @@ export default function ProjectPage() {
               if (data.messageId) {
                 const tempId = tempAiIdRef.current
                 setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: data.messageId } : m))
-                // Move preview from temp ID to real message ID
                 setMessagePreviews(prev => {
                   if (prev[tempId]) {
                     const { [tempId]: preview, ...rest } = prev
                     return { ...rest, [data.messageId]: preview }
+                  }
+                  return prev
+                })
+                setContentPreviews(prev => {
+                  if (prev[tempId]) {
+                    const { [tempId]: cp, ...rest } = prev
+                    return { ...rest, [data.messageId]: cp }
                   }
                   return prev
                 })
@@ -259,6 +269,7 @@ export default function ProjectPage() {
             onMessageUpdated={fetchProject}
             hasFiles={project.files.length > 0}
             messagePreviews={messagePreviews}
+            contentPreviews={contentPreviews}
           />
           <ChatInput
             onSend={sendMessage}

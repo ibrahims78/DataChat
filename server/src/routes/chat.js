@@ -279,6 +279,76 @@ async function generateWordFile(content, filename) {
   return { storedName, originalName: `${filename}.docx`, fileSize: fs.statSync(filePath).size }
 }
 
+// Convert any uploaded file to an HTML snippet for in-chat preview
+async function buildContentPreview(file) {
+  const uploadsBase = path.join(__dirname, '../../../uploads')
+  const filePath = path.join(uploadsBase, file.stored_name)
+  const ft = file.file_type
+
+  if (ft === 'excel') {
+    const wb = XLSX.readFile(filePath)
+    const sheetName = wb.SheetNames[0]
+    const ws = wb.Sheets[sheetName]
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+    const MAX_ROWS = 60
+    const shown = rows.slice(0, MAX_ROWS)
+    const header = shown[0] || []
+    const body = shown.slice(1)
+    const thCells = header.map(h => `<th>${String(h).replace(/</g,'&lt;')}</th>`).join('')
+    const trRows = body.map(r =>
+      `<tr>${header.map((_,i) => `<td>${String(r[i] ?? '').replace(/</g,'&lt;')}</td>`).join('')}</tr>`
+    ).join('')
+    const note = rows.length > MAX_ROWS ? `<p style="color:#888;font-size:11px">عرض أول ${MAX_ROWS} صف من ${rows.length}</p>` : ''
+    return {
+      type: 'table',
+      html: `<div style="overflow:auto;max-height:420px;font-size:12px;direction:rtl"><table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;min-width:100%;background:#fff;"><thead style="background:#e8eaf6;position:sticky;top:0"><tr>${thCells}</tr></thead><tbody>${trRows}</tbody></table>${note}</div>`
+    }
+  }
+
+  if (ft === 'csv') {
+    const raw = fs.readFileSync(filePath, 'utf8')
+    const records = parse(raw, { skip_empty_lines: true })
+    const MAX_ROWS = 60
+    const shown = records.slice(0, MAX_ROWS)
+    const header = shown[0] || []
+    const body = shown.slice(1)
+    const thCells = header.map(h => `<th>${String(h).replace(/</g,'&lt;')}</th>`).join('')
+    const trRows = body.map(r =>
+      `<tr>${header.map((_,i) => `<td>${String(r[i] ?? '').replace(/</g,'&lt;')}</td>`).join('')}</tr>`
+    ).join('')
+    const note = records.length > MAX_ROWS ? `<p style="color:#888;font-size:11px">عرض أول ${MAX_ROWS} صف من ${records.length}</p>` : ''
+    return {
+      type: 'table',
+      html: `<div style="overflow:auto;max-height:420px;font-size:12px;direction:rtl"><table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;min-width:100%;background:#fff;"><thead style="background:#e8eaf6;position:sticky;top:0"><tr>${thCells}</tr></thead><tbody>${trRows}</tbody></table>${note}</div>`
+    }
+  }
+
+  if (ft === 'word') {
+    const result = await mammoth.convertToHtml({ path: filePath })
+    return { type: 'html', html: `<div style="direction:rtl;font-size:13px;line-height:1.7;padding:8px;max-height:480px;overflow:auto">${result.value}</div>` }
+  }
+
+  if (ft === 'pdf') {
+    const buf = fs.readFileSync(filePath)
+    const data = await pdfParse(buf)
+    const escaped = data.text.substring(0, 4000).replace(/</g,'&lt;').replace(/\n/g,'<br>')
+    return { type: 'html', html: `<div style="direction:rtl;font-size:12px;line-height:1.8;padding:8px;max-height:480px;overflow:auto;white-space:pre-wrap">${escaped}</div><p style="color:#888;font-size:11px">(${data.numpages} صفحة — معاينة نصية)</p>` }
+  }
+
+  if (ft === 'json') {
+    const raw = fs.readFileSync(filePath, 'utf8')
+    let pretty = raw
+    try { pretty = JSON.stringify(JSON.parse(raw), null, 2) } catch {}
+    const escaped = pretty.substring(0, 6000).replace(/</g,'&lt;')
+    return { type: 'html', html: `<pre style="font-size:11px;max-height:480px;overflow:auto;background:#f5f5f5;padding:10px;border-radius:6px;direction:ltr">${escaped}</pre>` }
+  }
+
+  // markdown / text
+  const raw = fs.readFileSync(filePath, 'utf8').substring(0, 6000)
+  const escaped = raw.replace(/</g,'&lt;').replace(/\n/g,'<br>')
+  return { type: 'html', html: `<div style="direction:rtl;font-size:13px;line-height:1.7;padding:8px;max-height:480px;overflow:auto;white-space:pre-wrap">${escaped}</div>` }
+}
+
 // Extract one or more pages from an existing PDF preserving original layout
 async function extractPDFPages(srcPath, pages, outFilename) {
   const srcBytes = fs.readFileSync(srcPath)
@@ -623,6 +693,9 @@ router.post('/:projectId/message', async (req, res) => {
 13. عندما يطلب المستخدم رؤية/عرض صفحة من ملف PDF مباشرةً في الدردشة (مثل "أرني الصفحة 5"، "اعرض لي الصفحة")، استخدم:
 [SHOW_PAGE]{"filename":"اسم_الملف.pdf","page":5}[/SHOW_PAGE]
 سيتم عرض الصفحة كصورة مباشرةً في الدردشة. لا تقل "لا أستطيع عرض الصور" — استخدم هذا الوسم فوراً.
+14. عندما يطلب المستخدم مشاهدة/عرض محتوى أي ملف مرفوع في الدردشة (Excel أو CSV أو Word أو JSON أو نصي أو PDF) بصرياً، استخدم:
+[SHOW_CONTENT]{"filename":"اسم_الملف"}[/SHOW_CONTENT]
+يعمل مع جميع الصيغ: Excel/CSV يظهر كجدول، Word يظهر كنص منسق، JSON يظهر منسقاً، نصي/Markdown يظهر مباشرةً. لا تقل "لا أستطيع عرض المحتوى" — استخدم هذا الوسم فوراً.
 
 ---
 
@@ -671,12 +744,13 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
     let wordMatch = fullResponse.match(/\[WORD_FILE\]([\s\S]*?)\[\/WORD_FILE\]/)
     let extractMatch = fullResponse.match(/\[EXTRACT_PAGE\]([\s\S]*?)\[\/EXTRACT_PAGE\]/)
     let showPageMatch = fullResponse.match(/\[SHOW_PAGE\]([\s\S]*?)\[\/SHOW_PAGE\]/)
+    let showContentMatch = fullResponse.match(/\[SHOW_CONTENT\]([\s\S]*?)\[\/SHOW_CONTENT\]/)
 
     // --- Fallback: if user asked for a file but AI didn't generate a tag, make a second focused call ---
     const fileKeywords = /ملف\s*(excel|اكسل|xlsx|إكسل|pdf|بي دي اف|تقرير|word|html|ويب|md|markdown|txt|نصي|json)|أنشئ\s*ملف|اعطني\s*ملف|عطني\s*ملف|صدّر|صدر\s*البيانات|تحميل\s*ملف|download.*file|create.*file|generate.*file|export/i
     const userWantsFile = fileKeywords.test(message)
 
-    if (userWantsFile && !excelMatch && !pdfMatch && !htmlMatch && !mdMatch && !txtMatch && !jsonMatch && !wordMatch && !extractMatch && !showPageMatch) {
+    if (userWantsFile && !excelMatch && !pdfMatch && !htmlMatch && !mdMatch && !txtMatch && !jsonMatch && !wordMatch && !extractMatch && !showPageMatch && !showContentMatch) {
       console.log('[FALLBACK] User requested file but AI did not generate tag. Triggering fallback call.')
       try {
         const isHTML = /html|ويب|صفحة\s*ويب/i.test(message)
@@ -746,6 +820,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       .replace(/\[WORD_FILE\][\s\S]*?\[\/WORD_FILE\]/g, '')
       .replace(/\[EXTRACT_PAGE\][\s\S]*?\[\/EXTRACT_PAGE\]/g, '')
       .replace(/\[SHOW_PAGE\][\s\S]*?\[\/SHOW_PAGE\]/g, '')
+      .replace(/\[SHOW_CONTENT\][\s\S]*?\[\/SHOW_CONTENT\]/g, '')
       .trim()
 
     // If AI sent only a file tag with no text, add a default confirmation message
@@ -989,6 +1064,29 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         generatedFile = gf.rows[0]
         console.log('[EXTRACT] File saved:', ef.storedName)
       } catch (e) { console.error('Page extraction error:', e.message, e.stack) }
+    } else if (showContentMatch) {
+      try {
+        const scData = repairJSON(showContentMatch[1].trim())
+        const scFilename = scData.filename || ''
+        const scFileRow = await db.query(
+          `SELECT * FROM files WHERE project_id=$1 AND (original_name ILIKE $2 OR original_name ILIKE $3) ORDER BY created_at DESC LIMIT 1`,
+          [req.params.projectId, `%${scFilename}%`, `%${path.basename(scFilename, path.extname(scFilename))}%`]
+        )
+        if (!scFileRow.rows.length) throw new Error(`لم يتم العثور على الملف: ${scFilename}`)
+        const scFile = scFileRow.rows[0]
+        console.log(`[SHOW_CONTENT] Building preview for "${scFile.original_name}" (${scFile.file_type})`)
+        const preview = await buildContentPreview(scFile)
+        const contentPreviewData = { html: preview.html, previewType: preview.type, filename: scFile.original_name }
+        // Embed in message for persistence
+        const marker = `\n@@CONTENT_PREVIEW@@${JSON.stringify(contentPreviewData)}@@END_CONTENT_PREVIEW@@`
+        cleanResponse = (cleanResponse || `إليك محتوى الملف **${scFile.original_name}**:`) + marker
+        // Notify client immediately
+        res.write(`data: ${JSON.stringify({ type: 'content_preview', ...contentPreviewData })}\n\n`)
+        // Re-send update_content without the marker for display
+        const displayResponse = cleanResponse.replace(/\n@@CONTENT_PREVIEW@@[\s\S]*?@@END_CONTENT_PREVIEW@@/g, '').trim()
+        res.write(`data: ${JSON.stringify({ type: 'update_content', content: displayResponse })}\n\n`)
+        console.log(`[SHOW_CONTENT] Preview built for "${scFile.original_name}"`)
+      } catch (e) { console.error('SHOW_CONTENT error:', e.message, e.stack) }
     }
 
     await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [req.params.projectId])

@@ -9,9 +9,11 @@ import { ar } from 'date-fns/locale'
 import api from '../../lib/api'
 import toast from 'react-hot-toast'
 import PdfPageViewer from './PdfPageViewer'
+import ContentPreview from './ContentPreview'
 
 interface Message { id: number; role: string; content: string; created_at: string; rating?: number }
 interface PagePreview { fileUrl: string; page: number; filename: string }
+interface ContentPreviewData { html: string; previewType: string; filename: string }
 
 interface Props {
   messages: Message[]
@@ -21,6 +23,7 @@ interface Props {
   onMessageUpdated: () => void
   hasFiles: boolean
   messagePreviews?: Record<number, PagePreview>
+  contentPreviews?: Record<number, ContentPreviewData>
 }
 
 function parsePagePreview(content: string): { preview: PagePreview | null; cleanContent: string } {
@@ -35,7 +38,19 @@ function parsePagePreview(content: string): { preview: PagePreview | null; clean
   }
 }
 
-export default function ChatMessages({ messages, isTyping, typingStep, projectId, onMessageUpdated, hasFiles, messagePreviews = {} }: Props) {
+function parseContentPreview(content: string): { cp: ContentPreviewData | null; cleanContent: string } {
+  const match = content.match(/\n@@CONTENT_PREVIEW@@([\s\S]*?)@@END_CONTENT_PREVIEW@@/)
+  if (!match) return { cp: null, cleanContent: content }
+  try {
+    const cp = JSON.parse(match[1])
+    const cleanContent = content.replace(/\n@@CONTENT_PREVIEW@@[\s\S]*?@@END_CONTENT_PREVIEW@@/g, '').trim()
+    return { cp, cleanContent }
+  } catch {
+    return { cp: null, cleanContent: content }
+  }
+}
+
+export default function ChatMessages({ messages, isTyping, typingStep, projectId, onMessageUpdated, hasFiles, messagePreviews = {}, contentPreviews = {} }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const { lang } = useTheme()
   const tr = useT(lang)
@@ -148,9 +163,12 @@ export default function ChatMessages({ messages, isTyping, typingStep, projectId
                 <div className="flex-1 min-w-0">
                   {(() => {
                     const sessionPreview = messagePreviews[msg.id]
-                    const { preview: storedPreview, cleanContent } = parsePagePreview(msg.content)
+                    const { preview: storedPreview, cleanContent: cleanAfterPage } = parsePagePreview(msg.content)
                     const preview = sessionPreview || storedPreview
-                    const displayContent = sessionPreview ? msg.content : cleanContent
+                    const sessionCp = contentPreviews[msg.id]
+                    const { cp: storedCp, cleanContent } = parseContentPreview(cleanAfterPage)
+                    const cp = sessionCp || storedCp
+                    const displayContent = sessionPreview ? msg.content : (sessionCp ? cleanAfterPage : cleanContent)
                     return (
                   <div className="chat-bubble-ai">
                     <div className="prose prose-sm max-w-none dark:prose-invert text-[var(--text)] text-sm">
@@ -161,6 +179,13 @@ export default function ChatMessages({ messages, isTyping, typingStep, projectId
                         fileUrl={preview.fileUrl}
                         page={preview.page}
                         filename={preview.filename}
+                      />
+                    )}
+                    {cp && (
+                      <ContentPreview
+                        html={cp.html}
+                        previewType={cp.previewType}
+                        filename={cp.filename}
                       />
                     )}
                     <p className="text-xs text-[var(--muted)] mt-2">
