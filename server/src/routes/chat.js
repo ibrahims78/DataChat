@@ -239,6 +239,13 @@ async function extractFileContent(file) {
         return header + raw.substring(0, CHAR_BUDGET - header.length)
       }
     }
+    if (file.file_type === 'html') {
+      const CHAR_BUDGET = 200000
+      const raw = fs.readFileSync(filePath, 'utf8')
+      const header = `[ملف HTML: ${file.original_name}]\nالمحتوى الكامل:\n`
+      if (header.length + raw.length <= CHAR_BUDGET) return header + raw
+      return header + raw.substring(0, CHAR_BUDGET - header.length) + `\n[تحذير: عُرض جزء من الملف]`
+    }
     if (file.file_type === 'image') {
       try {
         const ext = path.extname(file.original_name).toLowerCase()
@@ -478,6 +485,14 @@ async function buildContentPreview(file) {
     try { pretty = JSON.stringify(JSON.parse(raw), null, 2) } catch {}
     const escaped = pretty.substring(0, 6000).replace(/</g,'&lt;')
     return { type: 'html', html: `<pre style="font-size:11px;max-height:480px;overflow:auto;background:#f5f5f5;padding:10px;border-radius:6px;direction:ltr">${escaped}</pre>` }
+  }
+
+  if (ft === 'html') {
+    const raw = fs.readFileSync(filePath, 'utf8')
+    return {
+      type: 'html',
+      html: `<iframe srcdoc="${raw.replace(/"/g, '&quot;').replace(/'/g, '&#39;')}" style="width:100%;height:480px;border:none;border-radius:4px" sandbox="allow-same-origin"></iframe>`
+    }
   }
 
   if (ft === 'image') {
@@ -1310,7 +1325,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         const scData = repairJSON(showContentMatch[1].trim())
         const scFilename = scData.filename || ''
         const scFileRow = await db.query(
-          `SELECT * FROM files WHERE project_id=$1 AND (original_name ILIKE $2 OR original_name ILIKE $3) ORDER BY created_at DESC LIMIT 1`,
+          `SELECT f.*, p.user_id FROM files f JOIN projects p ON p.id=f.project_id WHERE f.project_id=$1 AND (f.original_name ILIKE $2 OR f.original_name ILIKE $3) ORDER BY f.created_at DESC LIMIT 1`,
           [req.params.projectId, `%${scFilename}%`, `%${path.basename(scFilename, path.extname(scFilename))}%`]
         )
         if (!scFileRow.rows.length) throw new Error(`لم يتم العثور على الملف: ${scFilename}`)
@@ -1515,7 +1530,7 @@ router.post('/:projectId/submit-response', async (req, res) => {
         const scData = repairJSON(showContentMatch[1].trim())
         const scFilename = scData.filename || ''
         const scFileRow = await db.query(
-          `SELECT * FROM files WHERE project_id=$1 AND (original_name ILIKE $2 OR original_name ILIKE $3) ORDER BY created_at DESC LIMIT 1`,
+          `SELECT f.*, p.user_id FROM files f JOIN projects p ON p.id=f.project_id WHERE f.project_id=$1 AND (f.original_name ILIKE $2 OR f.original_name ILIKE $3) ORDER BY f.created_at DESC LIMIT 1`,
           [req.params.projectId, `%${scFilename}%`, `%${path.basename(scFilename, path.extname(scFilename))}%`]
         )
         if (scFileRow.rows.length) {

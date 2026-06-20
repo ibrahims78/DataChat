@@ -57,7 +57,7 @@ const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc', '.md', '.txt', '.json',
+    const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc', '.md', '.txt', '.json', '.html', '.htm',
       '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.heic', '.heif']
     const ext = path.extname(file.originalname).toLowerCase()
     if (allowed.includes(ext)) cb(null, true)
@@ -75,7 +75,7 @@ function getFileType(filename) {
   const map = {
     '.xlsx': 'excel', '.xlsm': 'excel', '.xls': 'excel',
     '.csv': 'csv', '.pdf': 'pdf', '.docx': 'word', '.doc': 'word',
-    '.md': 'markdown', '.txt': 'text', '.json': 'json',
+    '.md': 'markdown', '.txt': 'text', '.json': 'json', '.html': 'html', '.htm': 'html',
     '.jpg': 'image', '.jpeg': 'image', '.png': 'image', '.gif': 'image',
     '.webp': 'image', '.bmp': 'image', '.tiff': 'image', '.tif': 'image',
     '.heic': 'image', '.heif': 'image'
@@ -308,7 +308,7 @@ router.post('/:projectId/assemble-chunks', async (req, res) => {
   const { uploadId, fileName, totalChunks } = req.body
   if (!uploadId || !fileName || !totalChunks) return res.status(400).json({ error: 'Missing params' })
 
-  const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc', '.md', '.txt', '.json',
+  const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc', '.md', '.txt', '.json', '.html', '.htm',
     '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.heic', '.heif']
   const ext = path.extname(fileName).toLowerCase()
   if (!allowed.includes(ext)) return res.status(400).json({ error: 'File type not supported' })
