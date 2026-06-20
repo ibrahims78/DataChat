@@ -4,6 +4,7 @@ import { useTheme } from '../contexts/ThemeContext'
 import { useT } from '../i18n/translations'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../lib/api'
+import { testAgentRouter } from '../lib/agentrouter'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../components/ui/ConfirmModal'
 
@@ -141,6 +142,12 @@ export default function SettingsPage() {
     setTestingApi(true)
     setApiTestResult(null)
     try {
+      // AgentRouter without proxy → test directly from browser (server IPs are WAF-blocked)
+      if (aiSettings.provider === 'agentrouter' && !aiSettings.proxy_url?.trim()) {
+        const result = await testAgentRouter(aiSettings.api_key, aiSettings.model || 'deepseek/deepseek-chat-v3-0324')
+        setApiTestResult({ ok: result.ok, msg: result.msg })
+        return
+      }
       const r = await api.post('/admin/settings/test-api', {
         api_key: aiSettings.api_key,
         provider: aiSettings.provider,
