@@ -163,27 +163,80 @@ async function extractFileContent(file) {
     if (file.file_type === 'pdf') {
       const buf = fs.readFileSync(filePath)
       const data = await pdfParse(buf)
-      return `[ملف PDF: ${file.original_name}]\n${data.text.substring(0, 8000)}\n[${data.numpages} صفحة]`
+      const CHAR_BUDGET = 200000
+      const text = data.text
+      const wordCount = text.trim().split(/\s+/).length
+      const header = `[ملف PDF: ${file.original_name}]\nعدد الصفحات: ${data.numpages} | عدد الكلمات التقريبي: ${wordCount}\n\nالمحتوى الكامل:\n`
+      if (header.length + text.length <= CHAR_BUDGET) {
+        return header + text
+      }
+      const cut = text.lastIndexOf('\n', CHAR_BUDGET - header.length)
+      return header + text.substring(0, cut) + `\n[تحذير: عُرض ${cut} حرف من أصل ${text.length} — الملف كبير، يُنصح بتقسيمه]`
     }
     if (file.file_type === 'word') {
       const result = await mammoth.extractRawText({ path: filePath })
-      return `[ملف Word: ${file.original_name}]\n${result.value.substring(0, 8000)}`
+      const CHAR_BUDGET = 200000
+      const text = result.value
+      const wordCount = text.trim().split(/\s+/).length
+      const header = `[ملف Word: ${file.original_name}]\nعدد الكلمات التقريبي: ${wordCount}\n\nالمحتوى الكامل:\n`
+      if (header.length + text.length <= CHAR_BUDGET) {
+        return header + text
+      }
+      const cut = text.lastIndexOf('\n', CHAR_BUDGET - header.length)
+      return header + text.substring(0, cut) + `\n[تحذير: عُرض ${cut} حرف من أصل ${text.length} — الملف كبير، يُنصح بتقسيمه]`
     }
     if (file.file_type === 'markdown') {
-      const content = fs.readFileSync(filePath, 'utf8')
-      return `[ملف Markdown: ${file.original_name}]\n${content.substring(0, 8000)}`
+      const CHAR_BUDGET = 200000
+      const text = fs.readFileSync(filePath, 'utf8')
+      const lineCount = text.split('\n').length
+      const header = `[ملف Markdown: ${file.original_name}]\nعدد الأسطر: ${lineCount}\n\nالمحتوى الكامل:\n`
+      if (header.length + text.length <= CHAR_BUDGET) {
+        return header + text
+      }
+      const cut = text.lastIndexOf('\n', CHAR_BUDGET - header.length)
+      return header + text.substring(0, cut) + `\n[تحذير: عُرض جزء من الملف — ${cut} حرف من أصل ${text.length}]`
     }
     if (file.file_type === 'text') {
-      const content = fs.readFileSync(filePath, 'utf8')
-      return `[ملف نصي: ${file.original_name}]\n${content.substring(0, 8000)}`
+      const CHAR_BUDGET = 200000
+      const text = fs.readFileSync(filePath, 'utf8')
+      const lineCount = text.split('\n').length
+      const header = `[ملف نصي: ${file.original_name}]\nعدد الأسطر: ${lineCount}\n\nالمحتوى الكامل:\n`
+      if (header.length + text.length <= CHAR_BUDGET) {
+        return header + text
+      }
+      const cut = text.lastIndexOf('\n', CHAR_BUDGET - header.length)
+      return header + text.substring(0, cut) + `\n[تحذير: عُرض جزء من الملف — ${cut} حرف من أصل ${text.length}]`
     }
     if (file.file_type === 'json') {
-      const content = fs.readFileSync(filePath, 'utf8')
+      const CHAR_BUDGET = 200000
+      const raw = fs.readFileSync(filePath, 'utf8')
       try {
-        const parsed = JSON.parse(content)
-        return `[ملف JSON: ${file.original_name}]\n${JSON.stringify(parsed, null, 2).substring(0, 8000)}`
+        const parsed = JSON.parse(raw)
+        // Build structural summary
+        let summary = ''
+        if (Array.isArray(parsed)) {
+          const sample = parsed[0]
+          const keys = sample && typeof sample === 'object' ? Object.keys(sample) : []
+          summary = `نوع البيانات: مصفوفة\nعدد العناصر: ${parsed.length}${keys.length ? `\nأعمدة كل عنصر (${keys.length}): ${keys.join(', ')}` : ''}\n\nالمحتوى الكامل:\n`
+        } else if (typeof parsed === 'object' && parsed !== null) {
+          const keys = Object.keys(parsed)
+          summary = `نوع البيانات: كائن\nعدد المفاتيح: ${keys.length}\nالمفاتيح: ${keys.join(', ')}\n\nالمحتوى الكامل:\n`
+        } else {
+          summary = `نوع البيانات: قيمة بسيطة\n\nالمحتوى:\n`
+        }
+        const header = `[ملف JSON: ${file.original_name}]\n${summary}`
+        // Try compact JSON first to maximise data within budget
+        const compact = JSON.stringify(parsed)
+        if (header.length + compact.length <= CHAR_BUDGET) {
+          return header + compact
+        }
+        // Try pretty print within budget
+        const pretty = JSON.stringify(parsed, null, 2)
+        const cut = pretty.lastIndexOf('\n', CHAR_BUDGET - header.length)
+        return header + pretty.substring(0, cut) + `\n[تحذير: عُرض جزء من الملف — ${cut} حرف من أصل ${pretty.length}]`
       } catch {
-        return `[ملف JSON: ${file.original_name}]\n${content.substring(0, 8000)}`
+        const header = `[ملف JSON: ${file.original_name}] (خطأ في التحليل — نص خام)\n`
+        return header + raw.substring(0, CHAR_BUDGET - header.length)
       }
     }
   } catch (e) { return `[خطأ في قراءة ${file.original_name}: ${e.message}]` }
