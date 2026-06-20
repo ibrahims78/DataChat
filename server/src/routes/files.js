@@ -149,6 +149,11 @@ async function getFilePreview(filePath, fileType) {
         return { type: 'json', text: content.substring(0, 1000) }
       }
     }
+    if (fileType === 'html') {
+      if (isLarge) return { type: 'html', text: 'ملف HTML كبير — سيتم تحليله عند بدء المحادثة.' }
+      const content = fs.readFileSync(filePath, 'utf8')
+      return { type: 'html', text: content.substring(0, 1000) }
+    }
     if (fileType === 'image') {
       const mimeType = getImageMimeType(filePath)
       return { type: 'image', mimeType, filePath }
