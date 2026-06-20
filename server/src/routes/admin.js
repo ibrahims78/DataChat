@@ -58,7 +58,7 @@ router.use(authenticate, adminOnly)
 router.get('/stats', async (req, res) => {
   try {
     const [users, projects, genFiles, messages] = await Promise.all([
-      db.query("SELECT COUNT(*) FROM users WHERE is_active=true"),
+      db.query("SELECT COUNT(*) FROM users WHERE last_seen_at > NOW() - INTERVAL '15 minutes'"),
       db.query('SELECT COUNT(*) FROM projects'),
       db.query('SELECT COUNT(*) FROM generated_files'),
       db.query('SELECT COUNT(*) FROM messages')

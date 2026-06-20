@@ -124,6 +124,9 @@ CREATE TABLE IF NOT EXISTS email_settings (
 );
 INSERT INTO email_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
 
+-- Add last_seen_at to users if not exists
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP DEFAULT NULL;
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
 CREATE INDEX IF NOT EXISTS idx_files_project_id ON files(project_id);
