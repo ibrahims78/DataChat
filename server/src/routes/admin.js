@@ -109,6 +109,42 @@ router.post('/users/invite', async (req, res) => {
   }
 })
 
+router.patch('/users/:id', async (req, res) => {
+  try {
+    const { name, email, role, is_active, newPassword } = req.body
+    const { id } = req.params
+    const check = await db.query('SELECT * FROM users WHERE id=$1', [id])
+    if (!check.rows.length) return res.status(404).json({ error: 'المستخدم غير موجود' })
+    // Prevent demoting the only admin
+    if (check.rows[0].role === 'admin' && role === 'employee') {
+      const admins = await db.query("SELECT COUNT(*) FROM users WHERE role='admin'")
+      if (parseInt(admins.rows[0].count) <= 1) return res.status(400).json({ error: 'لا يمكن تغيير دور المدير الوحيد' })
+    }
+    // Check email uniqueness if changed
+    if (email && email !== check.rows[0].email) {
+      const exists = await db.query('SELECT id FROM users WHERE email=$1 AND id!=$2', [email, id])
+      if (exists.rows.length) return res.status(400).json({ error: 'البريد الإلكتروني مستخدَم بالفعل' })
+    }
+    if (newPassword) {
+      if (newPassword.length < 8) return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' })
+      const hash = await bcrypt.hash(newPassword, 12)
+      await db.query(
+        'UPDATE users SET name=$1, email=$2, role=$3, is_active=$4, password_hash=$5 WHERE id=$6',
+        [name, email, role, is_active, hash, id]
+      )
+    } else {
+      await db.query(
+        'UPDATE users SET name=$1, email=$2, role=$3, is_active=$4 WHERE id=$5',
+        [name, email, role, is_active, id]
+      )
+    }
+    const updated = await db.query('SELECT id, name, email, role, is_active FROM users WHERE id=$1', [id])
+    res.json(updated.rows[0])
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 router.delete('/users/:id', async (req, res) => {
   try {
     if (parseInt(req.params.id) === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself' })

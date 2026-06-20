@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Users, BarChart3, Settings, User, Star, Plus, Trash2, Eye, EyeOff, Mail, CheckCircle, XCircle, Loader2, KeyRound } from 'lucide-react'
+import { Users, BarChart3, Settings, User, Star, Plus, Trash2, Eye, EyeOff, Mail, CheckCircle, XCircle, Loader2, KeyRound, Pencil, ShieldCheck, UserCheck, UserX } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useT } from '../i18n/translations'
 import { useAuth } from '../contexts/AuthContext'
@@ -25,6 +25,8 @@ export default function SettingsPage() {
   const [emailTestResult, setEmailTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [ratings, setRatings] = useState<any[]>([])
   const [deleteUserTarget, setDeleteUserTarget] = useState<any>(null)
+  const [editUserTarget, setEditUserTarget] = useState<any>(null)
+  const [editForm, setEditForm] = useState({ name: '', email: '', role: 'employee', is_active: true, newPassword: '', showNewPw: false })
   const [showAddUser, setShowAddUser] = useState(false)
   const [showInvite, setShowInvite] = useState(false)
   const [newUser, setNewUser] = useState({ name: '', email: '', password: '' })
@@ -69,6 +71,30 @@ export default function SettingsPage() {
     } catch (err: any) {
       setEmailTestResult({ ok: false, msg: err.response?.data?.error || 'فشل الاتصال' })
     } finally { setTestingEmail(false) }
+  }
+
+  const openEditUser = (u: any) => {
+    setEditUserTarget(u)
+    setEditForm({ name: u.name, email: u.email, role: u.role, is_active: u.is_active ?? true, newPassword: '', showNewPw: false })
+  }
+
+  const saveEditUser = async () => {
+    if (!editUserTarget) return
+    if (!editForm.name.trim()) return toast.error('الاسم مطلوب')
+    if (!editForm.email.trim()) return toast.error('البريد مطلوب')
+    if (editForm.newPassword && editForm.newPassword.length < 8) return toast.error('كلمة المرور يجب أن تكون 8 أحرف على الأقل')
+    try {
+      await api.patch(`/admin/users/${editUserTarget.id}`, {
+        name: editForm.name,
+        email: editForm.email,
+        role: editForm.role,
+        is_active: editForm.is_active,
+        newPassword: editForm.newPassword || undefined,
+      })
+      toast.success('تم تحديث بيانات المستخدم')
+      setEditUserTarget(null)
+      fetchData()
+    } catch (err: any) { toast.error(err.response?.data?.error || 'فشل الحفظ') }
   }
 
   const deleteUser = async () => {
@@ -199,11 +225,16 @@ export default function SettingsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-end">
-                      {u.role !== 'admin' && (
-                        <button onClick={() => setDeleteUserTarget(u)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-[var(--muted)] hover:text-red-600 transition-colors">
-                          <Trash2 size={14} />
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => openEditUser(u)} className="p-1.5 rounded-lg hover:bg-primary-50 dark:hover:bg-primary-900/20 text-[var(--muted)] hover:text-primary-600 transition-colors" title="تعديل">
+                          <Pencil size={14} />
                         </button>
-                      )}
+                        {u.role !== 'admin' && (
+                          <button onClick={() => setDeleteUserTarget(u)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-[var(--muted)] hover:text-red-600 transition-colors" title="حذف">
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -223,6 +254,98 @@ export default function SettingsPage() {
                 <div className="flex gap-3 mt-4 justify-end">
                   <button onClick={() => setShowAddUser(false)} className="btn-ghost">{tr('cancel')}</button>
                   <button onClick={addUser} className="btn-primary">إضافة</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {editUserTarget && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditUserTarget(null)}>
+              <div className="card p-6 w-full max-w-md animate-fade-in" onClick={e => e.stopPropagation()}>
+                {/* Header */}
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center text-primary-600 font-bold text-base">
+                    {editForm.name.charAt(0) || '؟'}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-[var(--text)]">تعديل المستخدم</h3>
+                    <p className="text-xs text-[var(--muted)]">{editUserTarget.email}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Name */}
+                  <div>
+                    <label className="block text-sm font-semibold text-[var(--text)] mb-1">الاسم الكامل</label>
+                    <input className="input-field" value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} placeholder="اسم المستخدم" />
+                  </div>
+
+                  {/* Email */}
+                  <div>
+                    <label className="block text-sm font-semibold text-[var(--text)] mb-1">البريد الإلكتروني</label>
+                    <input className="input-field" type="email" value={editForm.email} onChange={e => setEditForm(p => ({ ...p, email: e.target.value }))} placeholder="email@example.com" />
+                  </div>
+
+                  {/* Role + Status row */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-semibold text-[var(--text)] mb-1">الدور</label>
+                      <select
+                        className="input-field"
+                        value={editForm.role}
+                        onChange={e => setEditForm(p => ({ ...p, role: e.target.value }))}
+                        disabled={editUserTarget.role === 'admin'}
+                      >
+                        <option value="employee">موظف</option>
+                        <option value="admin">مدير</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-[var(--text)] mb-1">الحالة</label>
+                      <button
+                        type="button"
+                        onClick={() => setEditForm(p => ({ ...p, is_active: !p.is_active }))}
+                        className={`w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border-2 text-sm font-semibold transition-all ${
+                          editForm.is_active
+                            ? 'border-green-400 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                            : 'border-red-300 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
+                        }`}
+                      >
+                        {editForm.is_active ? <><UserCheck size={14} /> مفعّل</> : <><UserX size={14} /> موقوف</>}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Password reset section */}
+                  <div className="border-t border-[var(--border)] pt-4">
+                    <label className="block text-sm font-semibold text-[var(--text)] mb-1">
+                      تغيير كلمة المرور
+                      <span className="font-normal text-[var(--muted)] text-xs me-1"> (اختياري)</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        className="input-field pe-10"
+                        type={editForm.showNewPw ? 'text' : 'password'}
+                        placeholder="اتركه فارغاً إن لم تريد التغيير"
+                        value={editForm.newPassword}
+                        onChange={e => setEditForm(p => ({ ...p, newPassword: e.target.value }))}
+                      />
+                      <button type="button" onClick={() => setEditForm(p => ({ ...p, showNewPw: !p.showNewPw }))}
+                        className="absolute end-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)] transition-colors">
+                        {editForm.showNewPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                    {editForm.newPassword && editForm.newPassword.length < 8 && (
+                      <p className="text-xs text-red-500 mt-1">8 أحرف على الأقل</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-3 mt-6 justify-end">
+                  <button onClick={() => setEditUserTarget(null)} className="btn-ghost">{tr('cancel')}</button>
+                  <button onClick={saveEditUser} className="btn-primary flex items-center gap-2">
+                    <ShieldCheck size={15} /> حفظ التغييرات
+                  </button>
                 </div>
               </div>
             </div>
