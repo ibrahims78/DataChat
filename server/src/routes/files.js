@@ -2,6 +2,7 @@ const express = require('express')
 const multer = require('multer')
 const path = require('path')
 const fs = require('fs')
+const archiver = require('archiver')
 const XLSX = require('xlsx')
 const pdfParse = require('pdf-parse')
 const mammoth = require('mammoth')
@@ -16,8 +17,33 @@ const UPLOADS_DIR = path.join(__dirname, '../../../uploads')
 const CHUNKS_DIR = path.join(UPLOADS_DIR, 'chunks')
 if (!fs.existsSync(CHUNKS_DIR)) fs.mkdirSync(CHUNKS_DIR, { recursive: true })
 
+// Returns the per-project upload directory, creating it if needed
+function getProjectDir(userId, projectId) {
+  const dir = path.join(UPLOADS_DIR, 'users', String(userId), 'projects', String(projectId))
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+// Resolve a stored_name to its absolute path.
+// Checks the structured path first, falls back to the legacy flat uploads/ path.
+function resolveFilePath(storedName, userId, projectId) {
+  if (userId && projectId) {
+    const structured = path.join(UPLOADS_DIR, 'users', String(userId), 'projects', String(projectId), storedName)
+    if (fs.existsSync(structured)) return structured
+  }
+  return path.join(UPLOADS_DIR, storedName)
+}
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+  destination: (req, file, cb) => {
+    const userId = req.user?.id
+    const projectId = req.params.projectId
+    if (userId && projectId) {
+      cb(null, getProjectDir(userId, projectId))
+    } else {
+      cb(null, UPLOADS_DIR)
+    }
+  },
   filename: (req, file, cb) => {
     const unique = Date.now() + '-' + Math.round(Math.random() * 1e9)
     cb(null, unique + path.extname(file.originalname))
@@ -268,7 +294,6 @@ router.post('/:projectId/assemble-chunks', async (req, res) => {
 
   const unique = Date.now() + '-' + Math.round(Math.random() * 1e9)
   const storedName = unique + ext
-  const destPath = path.join(UPLOADS_DIR, storedName)
 
   try {
     const projectCheck = await db.query('SELECT * FROM projects WHERE id=$1', [req.params.projectId])
@@ -276,6 +301,9 @@ router.post('/:projectId/assemble-chunks', async (req, res) => {
     if (req.user.role !== 'admin' && projectCheck.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
     const countCheck = await db.query('SELECT COUNT(*) FROM files WHERE project_id=$1', [req.params.projectId])
     if (parseInt(countCheck.rows[0].count) >= 10) return res.status(400).json({ error: 'Maximum 10 files per project' })
+
+    const projectDir = getProjectDir(req.user.id, req.params.projectId)
+    const destPath = path.join(projectDir, storedName)
 
     const writeStream = fs.createWriteStream(destPath)
     for (let i = 0; i < parseInt(totalChunks); i++) {
@@ -337,15 +365,15 @@ router.post('/:projectId', upload.single('file'), async (req, res) => {
 
 router.get('/:projectId/:fileId/download', async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM files WHERE id=$1 AND project_id=$2', [req.params.fileId, req.params.projectId])
+    const result = await db.query(
+      'SELECT f.*, p.user_id FROM files f JOIN projects p ON p.id=f.project_id WHERE f.id=$1 AND f.project_id=$2',
+      [req.params.fileId, req.params.projectId]
+    )
     if (!result.rows.length) return res.status(404).json({ error: 'File not found' })
     const file = result.rows[0]
-    const filePath = path.join(__dirname, '../../../uploads', file.stored_name)
+    if (req.user.role !== 'admin' && file.user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
+    const filePath = resolveFilePath(file.stored_name, file.user_id, req.params.projectId)
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' })
-    const projectCheck = await db.query('SELECT * FROM projects WHERE id=$1', [req.params.projectId])
-    if (projectCheck.rows.length && req.user.role !== 'admin' && projectCheck.rows[0].user_id !== req.user.id) {
-      return res.status(403).json({ error: 'Forbidden' })
-    }
     res.download(filePath, file.display_name || file.original_name)
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -354,10 +382,13 @@ router.get('/:projectId/:fileId/download', async (req, res) => {
 
 router.get('/:projectId/:fileId/preview', async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM files WHERE id=$1 AND project_id=$2', [req.params.fileId, req.params.projectId])
+    const result = await db.query(
+      'SELECT f.*, p.user_id FROM files f JOIN projects p ON p.id=f.project_id WHERE f.id=$1 AND f.project_id=$2',
+      [req.params.fileId, req.params.projectId]
+    )
     if (!result.rows.length) return res.status(404).json({ error: 'File not found' })
     const file = result.rows[0]
-    const filePath = path.join(__dirname, '../../../uploads', file.stored_name)
+    const filePath = resolveFilePath(file.stored_name, file.user_id, req.params.projectId)
     const preview = await getFilePreview(filePath, file.file_type)
     res.json({ file, preview })
   } catch (err) {
@@ -382,14 +413,65 @@ router.patch('/:projectId/:fileId/rename', async (req, res) => {
 
 router.delete('/:projectId/:fileId', async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM files WHERE id=$1 AND project_id=$2', [req.params.fileId, req.params.projectId])
+    const result = await db.query(
+      'SELECT f.*, p.user_id FROM files f JOIN projects p ON p.id=f.project_id WHERE f.id=$1 AND f.project_id=$2',
+      [req.params.fileId, req.params.projectId]
+    )
     if (!result.rows.length) return res.status(404).json({ error: 'File not found' })
-    const filePath = path.join(__dirname, '../../../uploads', result.rows[0].stored_name)
+    const file = result.rows[0]
+    const filePath = resolveFilePath(file.stored_name, file.user_id, req.params.projectId)
     if (fs.existsSync(filePath)) fs.unlink(filePath, () => {})
     await db.query('DELETE FROM files WHERE id=$1', [req.params.fileId])
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── Download entire project as ZIP ──────────────────────────────────────────
+
+router.get('/:projectId/download-zip', async (req, res) => {
+  try {
+    const projectCheck = await db.query(
+      'SELECT p.*, u.name as user_name FROM projects p LEFT JOIN users u ON p.user_id=u.id WHERE p.id=$1',
+      [req.params.projectId]
+    )
+    if (!projectCheck.rows.length) return res.status(404).json({ error: 'Project not found' })
+    const project = projectCheck.rows[0]
+    if (req.user.role !== 'admin' && project.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
+
+    const [filesResult, genFilesResult] = await Promise.all([
+      db.query('SELECT * FROM files WHERE project_id=$1', [req.params.projectId]),
+      db.query('SELECT * FROM generated_files WHERE project_id=$1', [req.params.projectId])
+    ])
+
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(project.name || 'project')}.zip`)
+    res.setHeader('Content-Type', 'application/zip')
+
+    const archive = archiver('zip', { zlib: { level: 6 } })
+    archive.on('error', err => { console.error('Archive error:', err); res.end() })
+    archive.pipe(res)
+
+    for (const file of filesResult.rows) {
+      const filePath = resolveFilePath(file.stored_name, project.user_id, project.id)
+      if (fs.existsSync(filePath)) {
+        archive.file(filePath, { name: `الملفات_المرفوعة/${file.display_name || file.original_name}` })
+      }
+    }
+
+    for (const file of genFilesResult.rows) {
+      const filePath = path.join(UPLOADS_DIR, 'generated', file.stored_name)
+      if (fs.existsSync(filePath)) {
+        archive.file(filePath, { name: `الملفات_المولدة/${file.display_name || file.original_name}` })
+      }
+    }
+
+    await archive.finalize()
+  } catch (err) {
+    console.error('Download ZIP error:', err)
+    if (!res.headersSent) res.status(500).json({ error: err.message })
   }
 })
 

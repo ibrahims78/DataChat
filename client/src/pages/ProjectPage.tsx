@@ -208,6 +208,26 @@ export default function ProjectPage() {
     } catch { toast.error('فشل التصدير') }
   }
 
+  const handleDownloadZip = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const toastId = toast.loading('جاري تحضير ملفات المشروع...')
+      const response = await fetch(`/api/files/${id}/download-zip`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (!response.ok) throw new Error('فشل التحميل')
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${project?.name || 'project'}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.dismiss(toastId)
+      toast.success('تم تحميل ملفات المشروع')
+    } catch { toast.error('فشل تحميل ملفات المشروع') }
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center h-screen">
       <div className="animate-spin w-10 h-10 border-4 border-primary-600 border-t-transparent rounded-full" />
@@ -255,12 +275,16 @@ export default function ProjectPage() {
             <button className="p-2 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors">
               <MoreHorizontal size={18} />
             </button>
-            <div className="absolute end-0 top-10 w-48 bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-lg py-1 z-20 hidden group-hover:block">
+            <div className="absolute end-0 top-10 w-52 bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-lg py-1 z-20 hidden group-hover:block">
               <button onClick={() => handleExport('pdf')} className="w-full flex items-center gap-2 px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)]">
                 <Download size={14} /> {tr('exportPDF')}
               </button>
               <button onClick={() => handleExport('txt')} className="w-full flex items-center gap-2 px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)]">
                 <Download size={14} /> {tr('exportTXT')}
+              </button>
+              <div className="border-t border-[var(--border)] my-1" />
+              <button onClick={handleDownloadZip} className="w-full flex items-center gap-2 px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)]">
+                <Download size={14} /> تحميل ملفات المشروع (ZIP)
               </button>
             </div>
           </div>
