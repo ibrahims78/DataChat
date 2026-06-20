@@ -29,15 +29,21 @@ export default {
     const targetPath = url.pathname + url.search
     const targetUrl = 'https://agentrouter.org' + targetPath
 
+    const STRIP = new Set([
+      'host', 'origin', 'referer', 'cf-connecting-ip',
+      'x-forwarded-for', 'cf-ray', 'cf-ipcountry',
+      'accept-encoding',
+    ])
     const newHeaders = new Headers()
     for (const [key, val] of request.headers.entries()) {
-      const lower = key.toLowerCase()
-      if (['host', 'origin', 'referer', 'cf-connecting-ip', 'x-forwarded-for', 'cf-ray', 'cf-ipcountry'].includes(lower)) continue
+      if (STRIP.has(key.toLowerCase())) continue
       newHeaders.set(key, val)
     }
+    newHeaders.set('Host', 'agentrouter.org')
     newHeaders.set('Origin', 'https://agentrouter.org')
     newHeaders.set('Referer', 'https://agentrouter.org/')
-    newHeaders.set('Host', 'agentrouter.org')
+    newHeaders.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
+    newHeaders.set('Accept-Language', 'en-US,en;q=0.9')
 
     let body
     if (request.method !== 'GET' && request.method !== 'HEAD') {
