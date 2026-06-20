@@ -205,11 +205,11 @@ router.get('/settings', async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM ai_settings WHERE id=1')
     const row = result.rows[0] || {}
-    // mask the api key — only send whether it's set, not the actual value
     res.json({
       ...row,
       api_key: row.api_key ? '••••••••••••••••••••••••••••••••••••••' : '',
-      has_api_key: !!row.api_key
+      has_api_key: !!row.api_key,
+      provider: row.provider || 'gemini'
     })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -218,16 +218,16 @@ router.get('/settings', async (req, res) => {
 
 router.patch('/settings', async (req, res) => {
   try {
-    const { system_prompt, temperature, model, api_key } = req.body
+    const { system_prompt, temperature, model, api_key, provider } = req.body
     if (api_key !== undefined && api_key !== '••••••••••••••••••••••••••••••••••••••') {
       await db.query(
-        'UPDATE ai_settings SET system_prompt=$1, temperature=$2, model=$3, api_key=$4, updated_at=NOW() WHERE id=1',
-        [system_prompt, temperature, model, api_key || null]
+        'UPDATE ai_settings SET system_prompt=$1, temperature=$2, model=$3, api_key=$4, provider=$5, updated_at=NOW() WHERE id=1',
+        [system_prompt, temperature, model, api_key || null, provider || 'gemini']
       )
     } else {
       await db.query(
-        'UPDATE ai_settings SET system_prompt=$1, temperature=$2, model=$3, updated_at=NOW() WHERE id=1',
-        [system_prompt, temperature, model]
+        'UPDATE ai_settings SET system_prompt=$1, temperature=$2, model=$3, provider=$4, updated_at=NOW() WHERE id=1',
+        [system_prompt, temperature, model, provider || 'gemini']
       )
     }
     res.json({ success: true })

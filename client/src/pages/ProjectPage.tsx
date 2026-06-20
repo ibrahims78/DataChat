@@ -92,7 +92,6 @@ export default function ProjectPage() {
     const convId = conversationIdRef.current
     if (!convId) return
 
-    // If this came from queue, mark it as no longer pending
     if (pendingMsgId !== undefined) {
       setMessages(prev => prev.map(m => m.id === pendingMsgId ? { ...m, pending: false } : m))
     }
@@ -112,83 +111,161 @@ export default function ProjectPage() {
     tempAiIdRef.current = aiMsg.id
     setMessages(prev => [...prev, aiMsg])
 
+    const token = localStorage.getItem('token')
+
     try {
-      const response = await fetch(`/api/chat/${projectIdRef.current}/message`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-        body: JSON.stringify({ message: content, conversationId: convId })
-      })
+      // ── Detect provider first ──────────────────────────────────────────────
+      let useAgentRouter = false
+      try {
+        const contextRes = await fetch(`/api/chat/${projectIdRef.current}/context`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        if (contextRes.ok) {
+          useAgentRouter = true
+          const ctx = await contextRes.json()
+          const { streamAgentRouter } = await import('../lib/agentrouter')
 
-      if (response.status === 401) {
-        localStorage.removeItem('token')
-        localStorage.removeItem('user')
-        navigate('/login')
-        return
-      }
+          const messages = [
+            { role: 'system' as const, content: ctx.systemPrompt },
+            ...ctx.history,
+            { role: 'user' as const, content }
+          ]
 
-      const reader = response.body!.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let fullText = ''
+          const FILE_TAGS = ['EXCEL_FILE', 'PDF_FILE', 'HTML_FILE', 'MD_FILE', 'TXT_FILE', 'JSON_FILE', 'WORD_FILE', 'EXTRACT_PAGE', 'SHOW_PAGE', 'SHOW_CONTENT']
+          let fullText = ''
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          try {
-            const data = JSON.parse(line.slice(6))
-            if (data.type === 'text') {
-              fullText += data.content
-              const FILE_TAGS = ['EXCEL_FILE', 'PDF_FILE', 'HTML_FILE', 'MD_FILE', 'TXT_FILE', 'JSON_FILE', 'WORD_FILE', 'EXTRACT_PAGE', 'SHOW_PAGE', 'SHOW_CONTENT']
+          await streamAgentRouter(
+            { apiKey: ctx.aiConfig.apiKey, model: ctx.aiConfig.model, temperature: ctx.aiConfig.temperature },
+            messages,
+            (chunk) => {
+              fullText += chunk
               let displayText = fullText
               for (const tag of FILE_TAGS) {
                 displayText = displayText.replace(new RegExp(`\\[${tag}\\][\\s\\S]*?\\[\\/${tag}\\]`, 'g'), '')
                 displayText = displayText.replace(new RegExp(`\\[${tag}\\][\\s\\S]*$`, 'g'), '')
               }
-              displayText = displayText.trim()
-              setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: displayText } : m))
-            } else if (data.type === 'update_content') {
-              fullText = data.content
-              const displayContent = data.content
-                .replace(/\n@@PAGE_PREVIEW@@[\s\S]*?@@END_PREVIEW@@/g, '')
-                .replace(/\n@@CONTENT_PREVIEW@@[\s\S]*?@@END_CONTENT_PREVIEW@@/g, '')
-                .trim()
-              setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: displayContent } : m))
-            } else if (data.type === 'page_preview') {
+              setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: displayText.trim() } : m))
+            }
+          )
+
+          // Submit to server to save messages + generate files
+          const submitRes = await fetch(`/api/chat/${projectIdRef.current}/submit-response`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ userMessage: content, aiResponse: fullText, conversationId: ctx.conversationId })
+          })
+
+          if (submitRes.ok) {
+            const result = await submitRes.json()
+
+            // Update display with clean response
+            const displayContent = (result.cleanResponse || fullText)
+              .replace(/\n@@PAGE_PREVIEW@@[\s\S]*?@@END_PREVIEW@@/g, '')
+              .replace(/\n@@CONTENT_PREVIEW@@[\s\S]*?@@END_CONTENT_PREVIEW@@/g, '')
+              .trim()
+            setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: displayContent } : m))
+
+            if (result.generatedFile) {
+              setProject(p => p ? { ...p, generated_files: [...p.generated_files, result.generatedFile] } : p)
+              toast.success('✅ الملف جاهز للتحميل — راجع قسم "النتائج المُولَّدة" في لوحة الملفات', { duration: 5000 })
+            }
+
+            if (result.aiMessageId) {
               const tempId = tempAiIdRef.current
-              setMessagePreviews(prev => ({ ...prev, [tempId]: { fileUrl: data.fileUrl, page: data.page, filename: data.filename } }))
-            } else if (data.type === 'content_preview') {
-              const tempId = tempAiIdRef.current
-              setContentPreviews(prev => ({ ...prev, [tempId]: { html: data.html, previewType: data.previewType, filename: data.filename } }))
-            } else if (data.type === 'done') {
-              if (data.generatedFile) {
-                setProject(p => p ? { ...p, generated_files: [...p.generated_files, data.generatedFile] } : p)
-                toast.success('✅ الملف جاهز للتحميل — راجع قسم "النتائج المُولَّدة" في لوحة الملفات', { duration: 5000 })
+              setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: result.aiMessageId } : m))
+              if (result.pagePreviewData) {
+                setMessagePreviews(prev => ({ ...prev, [result.aiMessageId]: result.pagePreviewData }))
               }
-              if (data.messageId) {
-                const tempId = tempAiIdRef.current
-                setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: data.messageId } : m))
-                setMessagePreviews(prev => {
-                  if (prev[tempId]) {
-                    const { [tempId]: preview, ...rest } = prev
-                    return { ...rest, [data.messageId]: preview }
-                  }
-                  return prev
-                })
-                setContentPreviews(prev => {
-                  if (prev[tempId]) {
-                    const { [tempId]: cp, ...rest } = prev
-                    return { ...rest, [data.messageId]: cp }
-                  }
-                  return prev
-                })
+              if (result.contentPreviewData) {
+                setContentPreviews(prev => ({ ...prev, [result.aiMessageId]: result.contentPreviewData }))
               }
             }
-          } catch {}
+          }
+        }
+        // if context returns 400 (not agentrouter provider) fall through to Gemini
+      } catch (_e: any) {
+        if (useAgentRouter) throw _e  // agentrouter already started — surface the error
+        // context returned 400 (provider=gemini) or network error — fall through to Gemini
+      }
+
+      if (!useAgentRouter) {
+        // ── Gemini SSE stream (existing flow) ────────────────────────────────
+        const response = await fetch(`/api/chat/${projectIdRef.current}/message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ message: content, conversationId: convId })
+        })
+
+        if (response.status === 401) {
+          localStorage.removeItem('token')
+          localStorage.removeItem('user')
+          navigate('/login')
+          return
+        }
+
+        const reader = response.body!.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let fullText = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.type === 'text') {
+                fullText += data.content
+                const FILE_TAGS = ['EXCEL_FILE', 'PDF_FILE', 'HTML_FILE', 'MD_FILE', 'TXT_FILE', 'JSON_FILE', 'WORD_FILE', 'EXTRACT_PAGE', 'SHOW_PAGE', 'SHOW_CONTENT']
+                let displayText = fullText
+                for (const tag of FILE_TAGS) {
+                  displayText = displayText.replace(new RegExp(`\\[${tag}\\][\\s\\S]*?\\[\\/${tag}\\]`, 'g'), '')
+                  displayText = displayText.replace(new RegExp(`\\[${tag}\\][\\s\\S]*$`, 'g'), '')
+                }
+                setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: displayText.trim() } : m))
+              } else if (data.type === 'update_content') {
+                fullText = data.content
+                const displayContent = data.content
+                  .replace(/\n@@PAGE_PREVIEW@@[\s\S]*?@@END_PREVIEW@@/g, '')
+                  .replace(/\n@@CONTENT_PREVIEW@@[\s\S]*?@@END_CONTENT_PREVIEW@@/g, '')
+                  .trim()
+                setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: displayContent } : m))
+              } else if (data.type === 'page_preview') {
+                const tempId = tempAiIdRef.current
+                setMessagePreviews(prev => ({ ...prev, [tempId]: { fileUrl: data.fileUrl, page: data.page, filename: data.filename } }))
+              } else if (data.type === 'content_preview') {
+                const tempId = tempAiIdRef.current
+                setContentPreviews(prev => ({ ...prev, [tempId]: { html: data.html, previewType: data.previewType, filename: data.filename } }))
+              } else if (data.type === 'done') {
+                if (data.generatedFile) {
+                  setProject(p => p ? { ...p, generated_files: [...p.generated_files, data.generatedFile] } : p)
+                  toast.success('✅ الملف جاهز للتحميل — راجع قسم "النتائج المُولَّدة" في لوحة الملفات', { duration: 5000 })
+                }
+                if (data.messageId) {
+                  const tempId = tempAiIdRef.current
+                  setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: data.messageId } : m))
+                  setMessagePreviews(prev => {
+                    if (prev[tempId]) {
+                      const { [tempId]: preview, ...rest } = prev
+                      return { ...rest, [data.messageId]: preview }
+                    }
+                    return prev
+                  })
+                  setContentPreviews(prev => {
+                    if (prev[tempId]) {
+                      const { [tempId]: cp, ...rest } = prev
+                      return { ...rest, [data.messageId]: cp }
+                    }
+                    return prev
+                  })
+                }
+              }
+            } catch {}
+          }
         }
       }
     } catch (err: any) {

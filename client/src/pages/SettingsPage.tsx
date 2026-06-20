@@ -13,7 +13,7 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('stats')
   const [stats, setStats] = useState<any>(null)
   const [users, setUsers] = useState<any[]>([])
-  const [aiSettings, setAiSettings] = useState<any>({ system_prompt: '', temperature: 0.7, model: 'gemini-2.5-flash', api_key: '' })
+  const [aiSettings, setAiSettings] = useState<any>({ system_prompt: '', temperature: 0.7, model: 'gemini-2.5-flash', api_key: '', provider: 'gemini' })
   const [showApiKey, setShowApiKey] = useState(false)
   const [apiKeyChanged, setApiKeyChanged] = useState(false)
   const [testingApi, setTestingApi] = useState(false)
@@ -140,8 +140,15 @@ export default function SettingsPage() {
     setTestingApi(true)
     setApiTestResult(null)
     try {
-      const r = await api.post('/admin/settings/test-api', { api_key: aiSettings.api_key })
-      setApiTestResult({ ok: true, msg: r.data.message })
+      if (aiSettings.provider === 'agentrouter') {
+        // Browser-direct test
+        const { testAgentRouter } = await import('../lib/agentrouter')
+        const result = await testAgentRouter(aiSettings.api_key, aiSettings.model || 'deepseek/deepseek-chat-v3-0324')
+        setApiTestResult(result)
+      } else {
+        const r = await api.post('/admin/settings/test-api', { api_key: aiSettings.api_key })
+        setApiTestResult({ ok: true, msg: r.data.message })
+      }
     } catch (err: any) {
       setApiTestResult({ ok: false, msg: err.response?.data?.error || 'فشل التحقق' })
     } finally {
@@ -398,11 +405,52 @@ export default function SettingsPage() {
         <div className="card p-6 space-y-5">
           <h2 className="font-semibold text-[var(--text)]">{tr('aiSettings')}</h2>
 
+          {/* Provider selector */}
+          <div>
+            <label className="block text-sm font-semibold text-[var(--text)] mb-2">مزوّد الذكاء الاصطناعي</label>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { id: 'gemini', label: 'Google Gemini', badge: 'خادم', icon: '🤖' },
+                { id: 'agentrouter', label: 'AgentRouter', badge: 'متصفح مباشر', icon: '⚡' }
+              ].map(p => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => { setAiSettings((s: any) => ({ ...s, provider: p.id })); setApiTestResult(null) }}
+                  className={`flex items-center gap-3 p-3 rounded-xl border-2 text-start transition-all ${
+                    aiSettings.provider === p.id
+                      ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                      : 'border-[var(--border)] hover:border-primary-300'
+                  }`}
+                >
+                  <span className="text-2xl">{p.icon}</span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[var(--text)]">{p.label}</p>
+                    <p className="text-xs text-[var(--muted)]">{p.badge}</p>
+                  </div>
+                  {aiSettings.provider === p.id && (
+                    <CheckCircle size={16} className="text-primary-600 shrink-0 ms-auto" />
+                  )}
+                </button>
+              ))}
+            </div>
+            {aiSettings.provider === 'agentrouter' && (
+              <div className="mt-2 flex items-start gap-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2">
+                <span className="mt-0.5 shrink-0">⚡</span>
+                <p className="text-xs text-blue-700 dark:text-blue-300">
+                  <strong>وضع المتصفح المباشر:</strong> الطلبات تُرسل من متصفحك مباشرةً إلى agentrouter.org — يتجاوز قيود الخادم ويدعم نماذج متعددة (DeepSeek, Claude, GPT, Gemini…).
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* API Key */}
           <div className="border border-[var(--border)] rounded-xl p-4 space-y-3">
             <div className="flex items-center gap-2 mb-1">
               <KeyRound size={16} className="text-primary-600" />
-              <label className="text-sm font-semibold text-[var(--text)]">مفتاح Gemini API</label>
+              <label className="text-sm font-semibold text-[var(--text)]">
+                {aiSettings.provider === 'agentrouter' ? 'مفتاح AgentRouter API' : 'مفتاح Gemini API'}
+              </label>
               {aiSettings.has_api_key && !apiKeyChanged && (
                 <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">محفوظ</span>
               )}
@@ -411,7 +459,7 @@ export default function SettingsPage() {
               <input
                 className="input-field pe-20 font-mono text-sm"
                 type={showApiKey ? 'text' : 'password'}
-                placeholder="AIzaSy..."
+                placeholder={aiSettings.provider === 'agentrouter' ? 'sk-...' : 'AIzaSy...'}
                 value={aiSettings.api_key}
                 onChange={e => {
                   setAiSettings((p: any) => ({ ...p, api_key: e.target.value }))
@@ -439,29 +487,81 @@ export default function SettingsPage() {
               </button>
               {apiTestResult && (
                 <div className={`flex items-center gap-1.5 text-sm font-medium ${apiTestResult.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                  {apiTestResult.ok
-                    ? <CheckCircle size={15} />
-                    : <XCircle size={15} />}
+                  {apiTestResult.ok ? <CheckCircle size={15} /> : <XCircle size={15} />}
                   {apiTestResult.msg}
                 </div>
               )}
             </div>
             <p className="text-xs text-[var(--muted)]">
-              احصل على مفتاحك من{' '}
-              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">Google AI Studio</a>.
-              إذا تُرك فارغاً سيُستخدم المفتاح المضبوط في البيئة.
+              {aiSettings.provider === 'agentrouter' ? (
+                <>احصل على مفتاحك من{' '}
+                  <a href="https://agentrouter.org/console/token" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">agentrouter.org/console/token</a>.
+                  المفتاح يُستخدم مباشرة من متصفحك ولا يُرسل للخادم إلا للحفظ المشفّر.</>
+              ) : (
+                <>احصل على مفتاحك من{' '}
+                  <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">Google AI Studio</a>.
+                  إذا تُرك فارغاً سيُستخدم المفتاح المضبوط في البيئة.</>
+              )}
             </p>
           </div>
 
+          {/* Model selector */}
           <div>
-            <label className="block text-sm font-semibold text-[var(--text)] mb-2">نموذج Gemini</label>
-            <select className="input-field" value={aiSettings.model} onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}>
-              <option value="gemini-2.5-flash">Gemini 2.5 Flash (موصى به)</option>
-              <option value="gemini-2.5-pro">Gemini 2.5 Pro (أعلى دقة)</option>
-              <option value="gemini-flash-latest">Gemini Flash Latest</option>
-              <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (اقتصادي)</option>
-            </select>
+            <label className="block text-sm font-semibold text-[var(--text)] mb-2">
+              {aiSettings.provider === 'agentrouter' ? 'نموذج AgentRouter' : 'نموذج Gemini'}
+            </label>
+            {aiSettings.provider === 'agentrouter' ? (
+              <div className="space-y-2">
+                <select
+                  className="input-field"
+                  value={aiSettings.model}
+                  onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value === '__custom__' ? '' : e.target.value }))}>
+                  <optgroup label="DeepSeek">
+                    <option value="deepseek/deepseek-chat-v3-0324">DeepSeek V3 (موصى به)</option>
+                    <option value="deepseek/deepseek-r1">DeepSeek R1 (تفكير)</option>
+                    <option value="deepseek/deepseek-chat">DeepSeek Chat</option>
+                  </optgroup>
+                  <optgroup label="Google Gemini">
+                    <option value="google/gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="google/gemini-2.5-pro">Gemini 2.5 Pro</option>
+                  </optgroup>
+                  <optgroup label="Anthropic Claude">
+                    <option value="anthropic/claude-sonnet-4-5">Claude Sonnet 4.5</option>
+                    <option value="anthropic/claude-haiku-3-5">Claude Haiku 3.5</option>
+                  </optgroup>
+                  <optgroup label="OpenAI">
+                    <option value="openai/gpt-4o">GPT-4o</option>
+                    <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                  </optgroup>
+                  <optgroup label="Zhipu GLM (مجاني)">
+                    <option value="glm-4-flash">GLM-4 Flash (مجاني)</option>
+                    <option value="glm4.5">GLM-4.5</option>
+                    <option value="glm-4.6">GLM-4.6</option>
+                  </optgroup>
+                  <optgroup label="Qwen">
+                    <option value="qwen/qwen-2.5-72b-instruct">Qwen 2.5 72B</option>
+                    <option value="qwen/qwen-plus">Qwen Plus</option>
+                  </optgroup>
+                  <option value="__custom__">نموذج مخصص (اكتبه يدوياً)</option>
+                </select>
+                <input
+                  className="input-field font-mono text-sm"
+                  placeholder="مثال: deepseek/deepseek-chat-v3-0324"
+                  value={aiSettings.model}
+                  onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}
+                />
+                <p className="text-xs text-[var(--muted)]">يمكنك الاختيار من القائمة أو كتابة معرّف النموذج يدوياً.</p>
+              </div>
+            ) : (
+              <select className="input-field" value={aiSettings.model} onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}>
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash (موصى به)</option>
+                <option value="gemini-2.5-pro">Gemini 2.5 Pro (أعلى دقة)</option>
+                <option value="gemini-flash-latest">Gemini Flash Latest</option>
+                <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (اقتصادي)</option>
+              </select>
+            )}
           </div>
+
           <div>
             <label className="block text-sm font-semibold text-[var(--text)] mb-2">{tr('systemPrompt')}</label>
             <textarea className="input-field" rows={7} value={aiSettings.system_prompt}
