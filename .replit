@@ -52,5 +52,5 @@ externalPort = 3000
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["bash", "-c", "PORT=5000 node server/src/index.js"]
+run = ["bash", "-c", "NODE_ENV=production PORT=5000 node server/src/index.js"]
 build = ["npm", "run", "build"]
