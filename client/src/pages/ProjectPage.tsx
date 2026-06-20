@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowRight, Upload, MoreHorizontal, Download, Share2 } from 'lucide-react'
+import { ArrowRight, Upload, MoreHorizontal, Download, FolderOpen } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useT } from '../i18n/translations'
 import api from '../lib/api'
@@ -31,6 +31,7 @@ export default function ProjectPage() {
   const [streamBuffer, setStreamBuffer] = useState('')
   const [messagePreviews, setMessagePreviews] = useState<Record<number, { fileUrl: string; page: number; filename: string }>>({})
   const [contentPreviews, setContentPreviews] = useState<Record<number, { html: string; previewType: string; filename: string }>>({})
+  const [showMobilePanel, setShowMobilePanel] = useState(false)
   const tempAiIdRef = useRef<number>(0)
 
   const fetchProject = async () => {
@@ -238,6 +239,10 @@ export default function ProjectPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button onClick={() => setShowMobilePanel(true)}
+            className="md:hidden p-2 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors" title="الملفات">
+            <FolderOpen size={18} />
+          </button>
           <button onClick={() => setShowUpload(true)}
             className="flex items-center gap-2 btn-ghost text-sm px-3 py-2">
             <Upload size={16} />
@@ -286,6 +291,8 @@ export default function ProjectPage() {
           projectId={project.id}
           onRefresh={fetchProject}
           onUpload={() => setShowUpload(true)}
+          mobileOpen={showMobilePanel}
+          onMobileClose={() => setShowMobilePanel(false)}
         />
       </div>
 

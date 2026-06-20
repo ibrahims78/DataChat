@@ -27,6 +27,8 @@ interface Props {
   projectId: number
   onRefresh: () => void
   onUpload: () => void
+  mobileOpen?: boolean
+  onMobileClose?: () => void
 }
 
 const typeIcons: Record<string, string> = { excel: '📊', csv: '📋', pdf: '📄', word: '📝', html: '🌐', markdown: '📑', text: '📃', json: '🗂️' }
@@ -43,7 +45,7 @@ function fileName(f: FileItem | GenFile) {
   return f.display_name || f.original_name
 }
 
-export default function FilePanel({ files, generatedFiles, folders, projectId, onRefresh, onUpload }: Props) {
+export default function FilePanel({ files, generatedFiles, folders, projectId, onRefresh, onUpload, mobileOpen = false, onMobileClose }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [collapsedFolders, setCollapsedFolders] = useState<Set<number>>(new Set())
 
@@ -405,34 +407,35 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
     )
   }
 
-  // ─── Collapsed sidebar ─────────────────────────────────────────────────────
-  if (collapsed) return (
-    <button onClick={() => setCollapsed(false)}
-      className="hidden md:flex w-10 bg-[var(--surface)] border-s border-[var(--border)] items-center justify-center hover:bg-[var(--bg)] transition-colors">
-      <ChevronLeft size={16} className={`text-[var(--muted)] ${lang === 'ar' ? '' : 'rotate-180'}`} />
-    </button>
-  )
-
-  return (
-    <aside className="hidden md:flex flex-col w-64 bg-[var(--surface)] border-s border-[var(--border)] shrink-0">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-        <span className="font-semibold text-sm text-[var(--text)]">{tr('files')}</span>
-        <div className="flex items-center gap-1">
-          <button onClick={() => setCreatingFolder(true)}
-            className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] hover:text-primary-600 transition-colors" title={tr('newFolder')}>
-            <FolderPlus size={14} />
-          </button>
-          <button onClick={onUpload}
-            className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] hover:text-primary-600 transition-colors" title={tr('uploadFile')}>
-            <Upload size={14} />
-          </button>
-          <button onClick={() => setCollapsed(true)}
-            className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors">
-            <ChevronRight size={14} className={lang === 'ar' ? '' : 'rotate-180'} />
-          </button>
+  // ─── Panel body (shared between desktop sidebar and mobile drawer) ──────────
+  function PanelBody({ onClose }: { onClose?: () => void }) {
+    return (
+      <>
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+          <span className="font-semibold text-sm text-[var(--text)]">{tr('files')}</span>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setCreatingFolder(true)}
+              className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] hover:text-primary-600 transition-colors" title={tr('newFolder')}>
+              <FolderPlus size={14} />
+            </button>
+            <button onClick={onUpload}
+              className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] hover:text-primary-600 transition-colors" title={tr('uploadFile')}>
+              <Upload size={14} />
+            </button>
+            {onClose ? (
+              <button onClick={onClose}
+                className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors" title="إغلاق">
+                <X size={14} />
+              </button>
+            ) : (
+              <button onClick={() => setCollapsed(true)}
+                className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors">
+                <ChevronRight size={14} className={lang === 'ar' ? '' : 'rotate-180'} />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
 
       <div className="flex-1 overflow-y-auto p-2 space-y-3">
 
@@ -635,6 +638,34 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
           </div>
         </div>
       )}
-    </aside>
+    </>
+  )
+  }
+
+  // ─── Collapsed (desktop only) ──────────────────────────────────────────────
+  if (collapsed) return (
+    <button onClick={() => setCollapsed(false)}
+      className="hidden md:flex w-10 bg-[var(--surface)] border-s border-[var(--border)] items-center justify-center hover:bg-[var(--bg)] transition-colors">
+      <ChevronLeft size={16} className={`text-[var(--muted)] ${lang === 'ar' ? '' : 'rotate-180'}`} />
+    </button>
+  )
+
+  return (
+    <>
+      {/* Mobile drawer overlay */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-40 flex md:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={onMobileClose} />
+          <aside className={`relative z-50 w-72 bg-[var(--surface)] flex flex-col h-full shadow-2xl ${lang === 'ar' ? 'me-auto' : 'ms-auto'}`}>
+            <PanelBody onClose={onMobileClose} />
+          </aside>
+        </div>
+      )}
+
+      {/* Desktop sidebar */}
+      <aside className="hidden md:flex flex-col w-64 bg-[var(--surface)] border-s border-[var(--border)] shrink-0">
+        <PanelBody />
+      </aside>
+    </>
   )
 }
