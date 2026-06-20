@@ -90,6 +90,47 @@ router.post('/reset-password', async (req, res) => {
   }
 })
 
+router.get('/invite/:token', async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT email, expires_at, used FROM invite_tokens WHERE token=$1',
+      [req.params.token]
+    )
+    if (!result.rows.length) return res.status(404).json({ error: 'رابط الدعوة غير صالح' })
+    const invite = result.rows[0]
+    if (invite.used) return res.status(400).json({ error: 'تم استخدام رابط الدعوة من قبل' })
+    if (new Date(invite.expires_at) < new Date()) return res.status(400).json({ error: 'انتهت صلاحية رابط الدعوة' })
+    res.json({ email: invite.email, valid: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.post('/register', async (req, res) => {
+  try {
+    const { token, name, password } = req.body
+    if (!token || !name || !password) return res.status(400).json({ error: 'جميع الحقول مطلوبة' })
+    const inv = await db.query(
+      'SELECT * FROM invite_tokens WHERE token=$1 AND used=false AND expires_at > NOW()',
+      [token]
+    )
+    if (!inv.rows.length) return res.status(400).json({ error: 'رابط الدعوة غير صالح أو منتهي الصلاحية' })
+    const invite = inv.rows[0]
+    const existing = await db.query('SELECT id FROM users WHERE email=$1', [invite.email])
+    if (existing.rows.length) return res.status(400).json({ error: 'هذا البريد مسجّل مسبقاً' })
+    const hash = await bcrypt.hash(password, 12)
+    const user = await db.query(
+      'INSERT INTO users (name, email, password_hash, role) VALUES ($1,$2,$3,$4) RETURNING id, name, email, role',
+      [name, invite.email, hash, 'employee']
+    )
+    await db.query('UPDATE invite_tokens SET used=true WHERE token=$1', [token])
+    const jwtToken = jwt.sign({ id: user.rows[0].id, role: 'employee' }, JWT_SECRET, { expiresIn: '7d' })
+    res.json({ token: jwtToken, user: user.rows[0] })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 router.post('/complete-onboarding', authenticate, async (req, res) => {
   try {
     await db.query('UPDATE users SET onboarding_done=true WHERE id=$1', [req.user.id])
