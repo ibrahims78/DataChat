@@ -251,10 +251,11 @@ export default function ProjectPage() {
               toast.success('✅ الملف جاهز للتحميل — راجع قسم "النتائج المُولَّدة" في لوحة الملفات', { duration: 5000 })
             }
           } catch (arErr: any) {
-            const isWafBlock = arErr?.message?.includes('content-blocked')
-            const errMsg = isWafBlock
-              ? '⚠️ AgentRouter محجوب في بيئة التطوير (.replit.dev). انشر التطبيق (Publish) وافتحه من الرابط المنشور لتجاوز هذا الحجب.'
-              : `❌ خطأ AgentRouter: ${arErr?.message || 'فشل الاتصال'}`
+            const msg = arErr?.message || ''
+            const isBlocked = msg.includes('content-blocked') || msg.includes('blocked')
+            const errMsg = isBlocked
+              ? '❌ خدمة AgentRouter تحجب الطلبات من تطبيقات خارجية (content-blocked). هذا القيد من جانب AgentRouter ولا يمكن تجاوزه. يُنصح بالتبديل إلى **Gemini** أو **OpenAI** من صفحة الإعدادات.'
+              : `❌ خطأ AgentRouter: ${msg || 'فشل الاتصال'}`
             setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: errMsg } : m))
           }
         }

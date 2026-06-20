@@ -1,38 +1,30 @@
 ---
 name: AgentRouter WAF and streaming
-description: How agentrouter.org WAF blocks requests and the working server-side non-streaming solution
+description: AgentRouter is fully incompatible with Replit — all request paths are blocked
 ---
 
-## WAF block behavior
-- agentrouter.org uses Aliyun WAF
-- Blocks Replit server IPs for STREAMING requests (returns HTML CAPTCHA challenge)
-- Blocks browser requests with `.replit.dev` / `.replit.app` Origin (returns `content-blocked` JSON)
-- **Does NOT block non-streaming requests from server when browser-like headers are sent**
+## FINAL VERDICT: AgentRouter is incompatible with Replit
 
-## Working solution: server-side non-streaming with browser-like headers
-In `chat.js` agentrouter branch:
-- Call `https://agentrouter.org/v1/chat/completions` with `stream: false`
-- Required headers: User-Agent (Chrome), Accept: application/json, Accept-Language: en-US
-- Parse JSON response, get `choices[0].message.content`
-- Emit full response as a single `{ type: 'text', content }` SSE event to the client
-- File generation (EXCEL/PDF/etc.) then runs normally on the full response
+All three possible request paths are blocked:
 
-**Why non-streaming works:** Aliyun WAF's CAPTCHA challenge is only triggered for streaming (SSE) requests. Non-streaming JSON requests pass through with browser-like headers.
-**Why browser-direct fails:** `.replit.dev` and `.replit.app` origins are blocked by the WAF even for real browser requests.
+| Path | Result | Reason |
+|---|---|---|
+| Server-side (any headers, streaming or not) | ❌ HTML WAF 11KB | Aliyun WAF blocks ALL Replit server IPs |
+| Browser from `.replit.dev` | ❌ JSON `content-blocked` | AgentRouter policy blocks this origin |
+| Browser from `.replit.app` (published) | ❌ JSON `content-blocked` | AgentRouter policy blocks this origin too |
 
-## Key headers for non-streaming server call
-```javascript
-'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ...'
-'Accept': 'application/json'
-'Accept-Language': 'en-US,en;q=0.9'
-// Do NOT add Accept-Encoding
-```
+**Why:** agentrouter.org uses Aliyun WAF that IP-blocks Replit server ranges, AND their application layer returns `content-blocked` for any browser Origin that isn't `agentrouter.org` itself. No header tricks, streaming modes, or deployment strategies can bypass both blocks simultaneously.
 
-## WAF detection
-- HTML CAPTCHA page: check `rawText.includes('aliyun_waf')`  
-- JSON content-block: check `!rawText.startsWith('{') && rawText.includes('content-blocked')`
-- JSON API error: parsed from `{ error: { message: "content-blocked (request id: ...)" } }`
+**The `content-blocked (request id: ...)` response** is an application-level block (not WAF HTML), meaning the request reaches AgentRouter servers but is rejected by their own policy for external origins.
 
-## Endpoints still in chat.js (kept but not used by main chat flow)
-- `GET /:projectId/context` — returns system prompt + history for browser-direct use (unused)
-- `POST /:projectId/submit-response` — saves AI response + generates files (unused by main flow)
+## Current implementation
+
+`chat.js` agentrouter branch: sends `use_client_ar` SSE event → browser calls AgentRouter directly → saves result via `/submit-response`. This shows the accurate error message when blocked.
+
+`SettingsPage.tsx`: Shows amber warning when AgentRouter is selected, explaining incompatibility.
+
+`agentrouter.ts` `testAgentRouter`: Returns `ok: false` with clear message when `content-blocked` detected.
+
+## Recommendation
+
+Use **Gemini** (built-in integration, no IP/origin issues) or **OpenAI** instead of AgentRouter for any Replit-hosted app.

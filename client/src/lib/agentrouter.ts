@@ -108,11 +108,11 @@ export async function testAgentRouter(apiKey: string, model: string): Promise<{ 
 
     const errText = await response.text()
 
-    // WAF block
+    // AgentRouter blocks all external origins (content-blocked policy)
     if (errText.includes('content-blocked') || errText.includes('blocked') || response.status === 403) {
       return {
-        ok: true,
-        msg: '⚠️ بيئة التطوير محجوبة — المفتاح صيغته صحيحة',
+        ok: false,
+        msg: '❌ AgentRouter يحجب الطلبات من تطبيقات Replit (content-blocked). استخدم Gemini أو OpenAI بدلاً منه.',
         warn: 'agentrouter-waf'
       }
     }
