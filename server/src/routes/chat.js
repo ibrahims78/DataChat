@@ -91,10 +91,18 @@ function getGenAI(apiKey) {
 const UPLOADS_DIR = path.join(__dirname, '../../../uploads')
 
 // Resolve stored file to its absolute path — checks structured path first, falls back to flat
+// Zero-pad an ID to at least 4 digits — e.g. 5 → "0005"
+function padId(id) {
+  return String(id).padStart(4, '0')
+}
+
 function resolveUploadPath(file) {
+  if (file._filePath) return file._filePath
   if (file.user_id && file.project_id) {
-    const structured = path.join(UPLOADS_DIR, 'users', String(file.user_id), 'projects', String(file.project_id), file.stored_name)
-    if (fs.existsSync(structured)) return structured
+    const newPath = path.join(UPLOADS_DIR, 'users', `user_${padId(file.user_id)}`, 'projects', `project_${padId(file.project_id)}`, file.stored_name)
+    if (fs.existsSync(newPath)) return newPath
+    const legacyPath = path.join(UPLOADS_DIR, 'users', String(file.user_id), 'projects', String(file.project_id), file.stored_name)
+    if (fs.existsSync(legacyPath)) return legacyPath
   }
   return path.join(UPLOADS_DIR, file.stored_name)
 }
@@ -426,7 +434,7 @@ async function generateWordFile(content, filename) {
 
 // Convert any uploaded file to an HTML snippet for in-chat preview
 async function buildContentPreview(file) {
-  const filePath = file._filePath || resolveUploadPath(file)
+  const filePath = resolveUploadPath(file)
   const ft = file.file_type
 
   if (ft === 'excel') {
@@ -496,7 +504,11 @@ async function buildContentPreview(file) {
   }
 
   if (ft === 'image') {
-    const imageUrl = `/uploads/users/${file.user_id}/projects/${file.project_id}/${file.stored_name}`
+    // Build the URL that matches whichever path the file actually lives at
+    const newRelPath = `users/user_${padId(file.user_id)}/projects/project_${padId(file.project_id)}/${file.stored_name}`
+    const legacyRelPath = `users/${file.user_id}/projects/${file.project_id}/${file.stored_name}`
+    const imageRelPath = fs.existsSync(path.join(UPLOADS_DIR, newRelPath)) ? newRelPath : legacyRelPath
+    const imageUrl = `/uploads/${imageRelPath}`
     return {
       type: 'image',
       html: `<div style="text-align:center;padding:8px"><img src="${imageUrl}" alt="${file.original_name}" style="max-width:100%;max-height:480px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15)" /></div>`

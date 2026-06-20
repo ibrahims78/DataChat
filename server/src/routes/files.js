@@ -18,19 +18,27 @@ const UPLOADS_DIR = path.join(__dirname, '../../../uploads')
 const CHUNKS_DIR = path.join(UPLOADS_DIR, 'chunks')
 if (!fs.existsSync(CHUNKS_DIR)) fs.mkdirSync(CHUNKS_DIR, { recursive: true })
 
-// Returns the per-project upload directory, creating it if needed
+// Zero-pad an ID to at least 4 digits — e.g. 5 → "0005", 123 → "0123"
+function padId(id) {
+  return String(id).padStart(4, '0')
+}
+
+// Returns the per-project upload directory (professional naming), creating it if needed.
+// New format:  uploads/users/user_0001/projects/project_0042/
 function getProjectDir(userId, projectId) {
-  const dir = path.join(UPLOADS_DIR, 'users', String(userId), 'projects', String(projectId))
+  const dir = path.join(UPLOADS_DIR, 'users', `user_${padId(userId)}`, 'projects', `project_${padId(projectId)}`)
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   return dir
 }
 
 // Resolve a stored_name to its absolute path.
-// Checks the structured path first, falls back to the legacy flat uploads/ path.
+// Checks new professional path, then legacy numeric path, then flat fallback.
 function resolveFilePath(storedName, userId, projectId) {
   if (userId && projectId) {
-    const structured = path.join(UPLOADS_DIR, 'users', String(userId), 'projects', String(projectId), storedName)
-    if (fs.existsSync(structured)) return structured
+    const newPath = path.join(UPLOADS_DIR, 'users', `user_${padId(userId)}`, 'projects', `project_${padId(projectId)}`, storedName)
+    if (fs.existsSync(newPath)) return newPath
+    const legacyPath = path.join(UPLOADS_DIR, 'users', String(userId), 'projects', String(projectId), storedName)
+    if (fs.existsSync(legacyPath)) return legacyPath
   }
   return path.join(UPLOADS_DIR, storedName)
 }
