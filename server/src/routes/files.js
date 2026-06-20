@@ -442,9 +442,10 @@ router.get('/:projectId/download-zip', async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' })
     }
 
-    const [filesResult, genFilesResult] = await Promise.all([
+    const [filesResult, genFilesResult, convResult] = await Promise.all([
       db.query('SELECT * FROM files WHERE project_id=$1', [req.params.projectId]),
-      db.query('SELECT * FROM generated_files WHERE project_id=$1', [req.params.projectId])
+      db.query('SELECT * FROM generated_files WHERE project_id=$1', [req.params.projectId]),
+      db.query('SELECT id FROM conversations WHERE project_id=$1 LIMIT 1', [req.params.projectId])
     ])
 
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(project.name || 'project')}.zip`)
@@ -454,6 +455,7 @@ router.get('/:projectId/download-zip', async (req, res) => {
     archive.on('error', err => { console.error('Archive error:', err); res.end() })
     archive.pipe(res)
 
+    // ── Uploaded files ──────────────────────────────────────────────────────
     for (const file of filesResult.rows) {
       const filePath = resolveFilePath(file.stored_name, project.user_id, project.id)
       if (fs.existsSync(filePath)) {
@@ -461,10 +463,32 @@ router.get('/:projectId/download-zip', async (req, res) => {
       }
     }
 
+    // ── AI-generated files ──────────────────────────────────────────────────
     for (const file of genFilesResult.rows) {
       const filePath = path.join(UPLOADS_DIR, 'generated', file.stored_name)
       if (fs.existsSync(filePath)) {
         archive.file(filePath, { name: `الملفات_المولدة/${file.display_name || file.original_name}` })
+      }
+    }
+
+    // ── Chat history as Excel ───────────────────────────────────────────────
+    if (convResult.rows.length) {
+      const messagesResult = await db.query(
+        'SELECT role, content, created_at FROM messages WHERE conversation_id=$1 ORDER BY created_at',
+        [convResult.rows[0].id]
+      )
+      if (messagesResult.rows.length) {
+        const wb = XLSX.utils.book_new()
+        const rows = messagesResult.rows.map(m => ({
+          'المرسل': m.role === 'user' ? 'المستخدم' : 'DataChat',
+          'الرسالة': m.content,
+          'الوقت': new Date(m.created_at).toLocaleString('ar-EG')
+        }))
+        const ws = XLSX.utils.json_to_sheet(rows)
+        ws['!cols'] = [{ wch: 12 }, { wch: 80 }, { wch: 20 }]
+        XLSX.utils.book_append_sheet(wb, ws, 'المحادثة')
+        const chatBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+        archive.append(chatBuffer, { name: 'المحادثة.xlsx' })
       }
     }
 

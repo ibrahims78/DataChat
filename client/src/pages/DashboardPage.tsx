@@ -106,7 +106,7 @@ export default function DashboardPage() {
           className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors" title={tr('rename')}>
           <Edit2 size={14} />
         </button>
-        <button onClick={e => { e.stopPropagation(); const token = localStorage.getItem('token'); window.open(`/api/chat/${p.id}/export?format=pdf&token=${encodeURIComponent(token || '')}`) }}
+        <button onClick={e => { e.stopPropagation(); const token = localStorage.getItem('token'); window.open(`/api/files/${p.id}/download-zip?token=${encodeURIComponent(token || '')}`) }}
           className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors" title={tr('export')}>
           <Download size={14} />
         </button>
