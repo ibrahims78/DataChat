@@ -9,10 +9,18 @@ const { authenticate, adminOnly } = require('../middleware/auth')
 
 const UPLOADS_DIR = path.join(__dirname, '../../../uploads')
 
+function padId(id) {
+  return String(id).padStart(4, '0')
+}
+
 function deleteUserDir(userId) {
   try {
-    const dir = path.join(UPLOADS_DIR, 'users', String(userId))
-    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true })
+    // New professional path: users/user_0001/
+    const newDir = path.join(UPLOADS_DIR, 'users', `user_${padId(userId)}`)
+    if (fs.existsSync(newDir)) fs.rmSync(newDir, { recursive: true, force: true })
+    // Legacy numeric path: users/1/  (backward compatibility)
+    const legacyDir = path.join(UPLOADS_DIR, 'users', String(userId))
+    if (fs.existsSync(legacyDir)) fs.rmSync(legacyDir, { recursive: true, force: true })
   } catch (e) {
     console.error('Error deleting user dir:', e.message)
   }
@@ -20,16 +28,8 @@ function deleteUserDir(userId) {
 
 async function deleteUserFiles(userId) {
   try {
-    // Delete all flat-stored files belonging to the user's projects
-    const filesRes = await db.query(
-      'SELECT f.stored_name FROM files f JOIN projects p ON p.id=f.project_id WHERE p.user_id=$1',
-      [userId]
-    )
-    for (const f of filesRes.rows) {
-      const p = path.join(UPLOADS_DIR, f.stored_name)
-      if (fs.existsSync(p)) fs.unlink(p, () => {})
-    }
     // Delete all generated files belonging to the user's projects
+    // (uploaded files are covered by deleteUserDir which removes the whole user folder)
     const genRes = await db.query(
       'SELECT gf.stored_name FROM generated_files gf JOIN projects p ON p.id=gf.project_id WHERE p.user_id=$1',
       [userId]
@@ -37,6 +37,15 @@ async function deleteUserFiles(userId) {
     for (const f of genRes.rows) {
       const p = path.join(UPLOADS_DIR, 'generated', f.stored_name)
       if (fs.existsSync(p)) fs.unlink(p, () => {})
+    }
+    // Also clean up any legacy flat-stored uploaded files
+    const filesRes = await db.query(
+      'SELECT f.stored_name FROM files f JOIN projects p ON p.id=f.project_id WHERE p.user_id=$1',
+      [userId]
+    )
+    for (const f of filesRes.rows) {
+      const flatPath = path.join(UPLOADS_DIR, f.stored_name)
+      if (fs.existsSync(flatPath)) fs.unlink(flatPath, () => {})
     }
   } catch (e) {
     console.error('Error deleting user files:', e.message)

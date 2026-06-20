@@ -6,10 +6,18 @@ const { authenticate } = require('../middleware/auth')
 
 const UPLOADS_DIR = path.join(__dirname, '../../../uploads')
 
+function padId(id) {
+  return String(id).padStart(4, '0')
+}
+
 function deleteProjectDir(userId, projectId) {
   try {
-    const dir = path.join(UPLOADS_DIR, 'users', String(userId), 'projects', String(projectId))
-    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true })
+    // New professional path
+    const newDir = path.join(UPLOADS_DIR, 'users', `user_${padId(userId)}`, 'projects', `project_${padId(projectId)}`)
+    if (fs.existsSync(newDir)) fs.rmSync(newDir, { recursive: true, force: true })
+    // Legacy numeric path (backward compatibility)
+    const legacyDir = path.join(UPLOADS_DIR, 'users', String(userId), 'projects', String(projectId))
+    if (fs.existsSync(legacyDir)) fs.rmSync(legacyDir, { recursive: true, force: true })
   } catch (e) {
     console.error('Error deleting project dir:', e.message)
   }
