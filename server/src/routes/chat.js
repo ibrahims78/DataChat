@@ -897,6 +897,8 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
               'Accept': 'application/json',
               'Accept-Language': 'en-US,en;q=0.9',
+              'Origin': 'https://agentrouter.org',
+              'Referer': 'https://agentrouter.org/',
             },
             body: JSON.stringify({
               model: selectedModel,
@@ -907,17 +909,21 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
           })
 
           const rawText = await arRes.text()
+          console.log(`[AgentRouter] status=${arRes.status} len=${rawText.length} preview=${rawText.substring(0, 300)}`)
 
-          // Detect WAF HTML challenge page
-          if (rawText.includes('aliyun_waf') || (!rawText.startsWith('{') && rawText.includes('content-blocked'))) {
-            throw new Error('خادم AgentRouter محجوب مؤقتاً بواسطة WAF. يرجى المحاولة مجدداً بعد قليل.')
-          }
-
+          // Try to parse as JSON first
           let parsed
-          try { parsed = JSON.parse(rawText) } catch { throw new Error(`رد غير صالح من AgentRouter: ${rawText.substring(0, 200)}`) }
+          try {
+            parsed = JSON.parse(rawText)
+          } catch {
+            // Not JSON → almost certainly WAF HTML
+            console.log('[AgentRouter] Non-JSON response — WAF block detected')
+            throw new Error('خادم AgentRouter محجوب بواسطة WAF. جرب مزود آخر (Gemini / OpenAI) أو تواصل مع مدير النظام.')
+          }
 
           if (!arRes.ok) {
             const errMsg = parsed?.error?.message || parsed?.message || parsed?.error || `خطأ ${arRes.status}`
+            console.log('[AgentRouter] API error:', errMsg)
             throw new Error(errMsg)
           }
 
