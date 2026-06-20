@@ -65,9 +65,15 @@ export default function SettingsPage() {
   const sendInvite = async () => {
     try {
       const r = await api.post('/admin/users/invite', { email: inviteEmail })
-      setInviteLink(window.location.origin + r.data.inviteLink)
-      toast.success('تم إنشاء رابط الدعوة')
-    } catch { toast.error('فشل الإرسال') }
+      if (r.data.inviteLink) {
+        setInviteLink(r.data.inviteLink)
+        toast.success('تم إنشاء رابط الدعوة')
+      } else {
+        toast.success(r.data.message || 'تم إرسال الدعوة')
+        setShowInvite(false)
+        setInviteEmail('')
+      }
+    } catch (err: any) { toast.error(err.response?.data?.error || 'فشل الإرسال') }
   }
 
   const saveAI = async () => {

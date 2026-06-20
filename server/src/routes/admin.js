@@ -1,8 +1,14 @@
 const express = require('express')
 const bcrypt = require('bcryptjs')
 const { v4: uuidv4 } = require('uuid')
+const nodemailer = require('nodemailer')
 const db = require('../lib/db')
 const { authenticate, adminOnly } = require('../middleware/auth')
+
+const mailer = nodemailer.createTransport({
+  service: 'gmail',
+  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+})
 
 const router = express.Router()
 router.use(authenticate, adminOnly)
@@ -54,12 +60,47 @@ router.post('/users', async (req, res) => {
 router.post('/users/invite', async (req, res) => {
   try {
     const { email } = req.body
+    if (!email) return res.status(400).json({ error: 'البريد الإلكتروني مطلوب' })
     const token = uuidv4()
     const expires = new Date(Date.now() + 48 * 60 * 60 * 1000)
     await db.query('INSERT INTO invite_tokens (email, token, created_by, expires_at) VALUES ($1,$2,$3,$4)', [email, token, req.user.id, expires])
-    res.json({ inviteLink: `/register?token=${token}`, message: 'Invite created' })
+    const origin = process.env.REPLIT_DEV_DOMAIN
+      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+      : `http://localhost:${process.env.PORT || 3001}`
+    const inviteLink = `${origin}/register?token=${token}`
+
+    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+      await mailer.sendMail({
+        from: `"DataChat" <${process.env.SMTP_USER}>`,
+        to: email,
+        subject: 'دعوة للانضمام إلى DataChat',
+        html: `
+          <div dir="rtl" style="font-family:Arial,sans-serif;max-width:500px;margin:auto;padding:32px;background:#f5f3ff;border-radius:12px;">
+            <div style="text-align:center;margin-bottom:24px;">
+              <div style="background:#7c3aed;width:56px;height:56px;border-radius:14px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:12px;">
+                <span style="color:white;font-size:24px;">🗄️</span>
+              </div>
+              <h1 style="color:#1e1b4b;margin:0;font-size:22px;">DataChat</h1>
+            </div>
+            <div style="background:white;border-radius:10px;padding:28px;">
+              <h2 style="color:#1e1b4b;margin-top:0;">مرحباً!</h2>
+              <p style="color:#4b5563;line-height:1.6;">تمت دعوتك للانضمام إلى منصة <strong>DataChat</strong> — المحلل الذكي للبيانات.</p>
+              <p style="color:#4b5563;line-height:1.6;">انقر على الزر أدناه لإنشاء حسابك. هذا الرابط صالح لمدة <strong>48 ساعة</strong>.</p>
+              <div style="text-align:center;margin:28px 0;">
+                <a href="${inviteLink}" style="background:#7c3aed;color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:16px;font-weight:bold;display:inline-block;">إنشاء الحساب</a>
+              </div>
+              <p style="color:#9ca3af;font-size:12px;margin-bottom:0;">أو انسخ هذا الرابط في المتصفح:<br/><span style="color:#7c3aed;word-break:break-all;">${inviteLink}</span></p>
+            </div>
+          </div>
+        `
+      })
+      res.json({ message: 'تم إرسال الدعوة إلى ' + email })
+    } else {
+      res.json({ inviteLink, message: 'تم إنشاء رابط الدعوة (لم يتم إعداد البريد الإلكتروني)' })
+    }
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    console.error('Invite error:', err.message)
+    res.status(500).json({ error: 'فشل إرسال الدعوة: ' + err.message })
   }
 })
 
