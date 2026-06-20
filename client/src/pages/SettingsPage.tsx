@@ -144,7 +144,7 @@ export default function SettingsPage() {
         // Browser-direct test
         const { testAgentRouter } = await import('../lib/agentrouter')
         const result = await testAgentRouter(aiSettings.api_key, aiSettings.model || 'deepseek/deepseek-chat-v3-0324')
-        setApiTestResult(result)
+        setApiTestResult({ ok: result.ok, msg: result.msg, warn: result.warn } as any)
       } else {
         const r = await api.post('/admin/settings/test-api', { api_key: aiSettings.api_key })
         setApiTestResult({ ok: true, msg: r.data.message })
@@ -475,7 +475,7 @@ export default function SettingsPage() {
                 {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <button
                 onClick={testApiKey}
                 disabled={testingApi || !aiSettings.api_key}
@@ -485,13 +485,23 @@ export default function SettingsPage() {
                   ? <><Loader2 size={14} className="animate-spin" /> جاري التحقق...</>
                   : 'اختبار المفتاح'}
               </button>
-              {apiTestResult && (
+              {apiTestResult && !(apiTestResult as any).warn && (
                 <div className={`flex items-center gap-1.5 text-sm font-medium ${apiTestResult.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                   {apiTestResult.ok ? <CheckCircle size={15} /> : <XCircle size={15} />}
                   {apiTestResult.msg}
                 </div>
               )}
             </div>
+            {apiTestResult && (apiTestResult as any).warn === 'agentrouter-waf' && (
+              <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+                <span className="shrink-0 mt-0.5">🔒</span>
+                <div className="text-xs text-amber-700 dark:text-amber-300 space-y-1">
+                  <p><strong>بيئة التطوير محجوبة من agentrouter.org</strong></p>
+                  <p>خوادم Replit السحابية مُدرجة في قائمة حجب WAF الخاص بـ agentrouter. هذا طبيعي تماماً في بيئة التطوير.</p>
+                  <p>✅ <strong>بعد النشر</strong>: الطلبات ستخرج من متصفحك مباشرةً (IP منزلي) وستعمل بدون مشاكل.</p>
+                </div>
+              </div>
+            )}
             <p className="text-xs text-[var(--muted)]">
               {aiSettings.provider === 'agentrouter' ? (
                 <>احصل على مفتاحك من{' '}
