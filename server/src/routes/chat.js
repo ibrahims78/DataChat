@@ -507,10 +507,14 @@ async function buildContentPreview(file) {
   }
 
   if (ft === 'html') {
-    const raw = fs.readFileSync(filePath, 'utf8')
+    // Use a URL-based iframe instead of embedding the entire file in srcdoc
+    // This avoids SSE payload size issues with large HTML files
+    const htmlUrl = file._filePath
+      ? `/uploads/generated/${file.stored_name}`
+      : resolveFileUrl(file)
     return {
       type: 'html',
-      html: `<iframe srcdoc="${raw.replace(/"/g, '&quot;').replace(/'/g, '&#39;')}" style="width:100%;height:480px;border:none;border-radius:4px" sandbox="allow-same-origin"></iframe>`
+      html: `<iframe src="${htmlUrl}" style="width:100%;height:480px;border:none;border-radius:4px" sandbox="allow-same-origin allow-scripts allow-forms"></iframe>`
     }
   }
 
