@@ -876,8 +876,10 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
     }
 
     if (provider === 'agentrouter') {
-      // Aliyun WAF blocks streaming from server IPs but allows non-streaming with browser-like headers.
-      // So we call AgentRouter as a regular (non-streaming) JSON request from the server.
+      // Aliyun WAF blocks ALL Replit server IPs (confirmed via logs: HTML CAPTCHA page returned).
+      // Solution: delegate the API call to the user's browser which has their real IP.
+      // The browser makes the request directly to agentrouter.org and sends the full response
+      // back to /:projectId/submit-response for file generation and DB persistence.
       const apiKey = aiConfig.api_key || ''
       if (!apiKey) {
         fullResponse = `عذراً، لم يتم ضبط مفتاح AgentRouter API. يرجى إضافته في الإعدادات.`
@@ -888,54 +890,18 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
           ...msgs.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
           { role: 'user', content: message }
         ]
-        try {
-          const arRes = await fetch('https://agentrouter.org/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${apiKey}`,
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-              'Accept': 'application/json',
-              'Accept-Language': 'en-US,en;q=0.9',
-              'Origin': 'https://agentrouter.org',
-              'Referer': 'https://agentrouter.org/',
-            },
-            body: JSON.stringify({
-              model: selectedModel,
-              messages: chatMessages,
-              temperature: parseFloat(aiConfig.temperature) || 0.7,
-              stream: false,
-            })
-          })
-
-          const rawText = await arRes.text()
-          console.log(`[AgentRouter] status=${arRes.status} len=${rawText.length} preview=${rawText.substring(0, 300)}`)
-
-          // Try to parse as JSON first
-          let parsed
-          try {
-            parsed = JSON.parse(rawText)
-          } catch {
-            // Not JSON → almost certainly WAF HTML
-            console.log('[AgentRouter] Non-JSON response — WAF block detected')
-            throw new Error('خادم AgentRouter محجوب بواسطة WAF. جرب مزود آخر (Gemini / OpenAI) أو تواصل مع مدير النظام.')
-          }
-
-          if (!arRes.ok) {
-            const errMsg = parsed?.error?.message || parsed?.message || parsed?.error || `خطأ ${arRes.status}`
-            console.log('[AgentRouter] API error:', errMsg)
-            throw new Error(errMsg)
-          }
-
-          fullResponse = parsed?.choices?.[0]?.message?.content || ''
-          if (!fullResponse) throw new Error('الرد من AgentRouter فارغ')
-
-          // Emit incrementally so the client loading indicator keeps working
-          res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
-        } catch (arErr) {
-          fullResponse = `عذراً، حدث خطأ في الاتصال بـ AgentRouter: ${arErr.message}`
-          res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
-        }
+        res.write(`data: ${JSON.stringify({
+          type: 'use_client_ar',
+          config: {
+            apiKey,
+            model: selectedModel,
+            temperature: parseFloat(aiConfig.temperature) || 0.7
+          },
+          messages: chatMessages,
+          conversationId
+        })}\n\n`)
+        res.end()
+        return
       }
     } else if (provider === 'openai') {
       const endpoint = 'https://api.openai.com/v1/chat/completions'

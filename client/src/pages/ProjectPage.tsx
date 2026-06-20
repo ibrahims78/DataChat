@@ -9,6 +9,7 @@ import FilePanel from '../components/files/FilePanel'
 import ChatMessages from '../components/chat/ChatMessages'
 import ChatInput from '../components/chat/ChatInput'
 import FileUploadModal from '../components/files/FileUploadModal'
+import { streamAgentRouter } from '../lib/agentrouter'
 
 interface Project {
   id: number; name: string; user_id: number
@@ -133,8 +134,19 @@ export default function ProjectPage() {
         const decoder = new TextDecoder()
         let buffer = ''
         let fullText = ''
+        let arCtx: any = null
 
-        while (true) {
+        const FILE_TAGS = ['EXCEL_FILE', 'PDF_FILE', 'HTML_FILE', 'MD_FILE', 'TXT_FILE', 'JSON_FILE', 'WORD_FILE', 'EXTRACT_PAGE', 'SHOW_PAGE', 'SHOW_CONTENT']
+        const stripTags = (t: string) => {
+          let out = t
+          for (const tag of FILE_TAGS) {
+            out = out.replace(new RegExp(`\\[${tag}\\][\\s\\S]*?\\[\\/${tag}\\]`, 'g'), '')
+            out = out.replace(new RegExp(`\\[${tag}\\][\\s\\S]*$`, 'g'), '')
+          }
+          return out.trim()
+        }
+
+        outer: while (true) {
           const { done, value } = await reader.read()
           if (done) break
           buffer += decoder.decode(value, { stream: true })
@@ -144,15 +156,12 @@ export default function ProjectPage() {
             if (!line.startsWith('data: ')) continue
             try {
               const data = JSON.parse(line.slice(6))
-              if (data.type === 'text') {
+              if (data.type === 'use_client_ar') {
+                arCtx = data
+                break outer
+              } else if (data.type === 'text') {
                 fullText += data.content
-                const FILE_TAGS = ['EXCEL_FILE', 'PDF_FILE', 'HTML_FILE', 'MD_FILE', 'TXT_FILE', 'JSON_FILE', 'WORD_FILE', 'EXTRACT_PAGE', 'SHOW_PAGE', 'SHOW_CONTENT']
-                let displayText = fullText
-                for (const tag of FILE_TAGS) {
-                  displayText = displayText.replace(new RegExp(`\\[${tag}\\][\\s\\S]*?\\[\\/${tag}\\]`, 'g'), '')
-                  displayText = displayText.replace(new RegExp(`\\[${tag}\\][\\s\\S]*$`, 'g'), '')
-                }
-                setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: displayText.trim() } : m))
+                setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: stripTags(fullText) } : m))
               } else if (data.type === 'update_content') {
                 fullText = data.content
                 const displayContent = data.content
@@ -194,6 +203,61 @@ export default function ProjectPage() {
           }
         }
 
+        // ── Browser-direct AgentRouter (server IP is WAF-blocked; user's browser IP is not) ──
+        if (arCtx) {
+          let arAccum = ''
+          try {
+            const arFull = await streamAgentRouter(
+              arCtx.config,
+              arCtx.messages,
+              (chunk) => {
+                arAccum += chunk
+                setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: stripTags(arAccum) } : m))
+              }
+            )
+            // Save to server: file generation + DB persist
+            const saveRes = await api.post(`/chat/${projectIdRef.current}/submit-response`, {
+              userMessage: content,
+              aiResponse: arFull,
+              conversationId: arCtx.conversationId,
+              skipUserMessage: true
+            })
+            const { aiMessageId, generatedFile, cleanResponse, pagePreviewData, contentPreviewData } = saveRes.data
+            if (cleanResponse !== undefined) {
+              const displayClean = cleanResponse
+                .replace(/\n@@PAGE_PREVIEW@@[\s\S]*?@@END_PREVIEW@@/g, '')
+                .replace(/\n@@CONTENT_PREVIEW@@[\s\S]*?@@END_CONTENT_PREVIEW@@/g, '')
+                .trim()
+              const tempId = tempAiIdRef.current
+              setMessages(prev => prev.map(m => m.id === tempId
+                ? { ...m, id: aiMessageId || m.id, content: displayClean || stripTags(arAccum) }
+                : m
+              ))
+              if (aiMessageId) {
+                setMessagePreviews(prev => {
+                  if (prev[tempId]) { const { [tempId]: p, ...rest } = prev; return { ...rest, [aiMessageId]: p } }
+                  return prev
+                })
+                setContentPreviews(prev => {
+                  if (prev[tempId]) { const { [tempId]: p, ...rest } = prev; return { ...rest, [aiMessageId]: p } }
+                  return prev
+                })
+              }
+            }
+            if (pagePreviewData && aiMessageId) setMessagePreviews(prev => ({ ...prev, [aiMessageId]: pagePreviewData }))
+            if (contentPreviewData && aiMessageId) setContentPreviews(prev => ({ ...prev, [aiMessageId]: contentPreviewData }))
+            if (generatedFile) {
+              setProject(p => p ? { ...p, generated_files: [...p.generated_files, generatedFile] } : p)
+              toast.success('✅ الملف جاهز للتحميل — راجع قسم "النتائج المُولَّدة" في لوحة الملفات', { duration: 5000 })
+            }
+          } catch (arErr: any) {
+            const isWafBlock = arErr?.message?.includes('content-blocked')
+            const errMsg = isWafBlock
+              ? '⚠️ AgentRouter محجوب في بيئة التطوير (.replit.dev). انشر التطبيق (Publish) وافتحه من الرابط المنشور لتجاوز هذا الحجب.'
+              : `❌ خطأ AgentRouter: ${arErr?.message || 'فشل الاتصال'}`
+            setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: errMsg } : m))
+          }
+        }
       }
     } catch (err: any) {
       const errMsg = err?.message && err.message !== 'Failed to fetch'
