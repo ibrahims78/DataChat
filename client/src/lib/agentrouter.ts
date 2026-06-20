@@ -11,6 +11,11 @@ export interface ChatMessage {
   content: string
 }
 
+// Strip non-ISO-8859-1 characters from header values (required by Fetch API)
+function safeHeader(value: string): string {
+  return value.replace(/[^\x20-\x7E]/g, '')
+}
+
 export async function streamAgentRouter(
   config: AgentRouterConfig,
   messages: ChatMessage[],
@@ -21,7 +26,7 @@ export async function streamAgentRouter(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.apiKey}`,
+      'Authorization': `Bearer ${safeHeader(config.apiKey)}`,
     },
     body: JSON.stringify({
       model: config.model,
@@ -86,14 +91,19 @@ export async function testAgentRouter(apiKey: string, model: string): Promise<{ 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 12000)
 
+    const cleanKey = safeHeader(apiKey)
+    if (!cleanKey || cleanKey.length < 8) {
+      return { ok: false, msg: 'المفتاح يحتوي على رموز غير صالحة — تأكد من نسخه بشكل صحيح' }
+    }
+
     const response = await fetch(`${AGENTROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${cleanKey}`,
       },
       body: JSON.stringify({
-        model,
+        model: safeHeader(model),
         messages: [{ role: 'user', content: 'hi' }],
         max_tokens: 5,
         stream: false,
