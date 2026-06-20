@@ -2,11 +2,18 @@ const jwt = require('jsonwebtoken')
 const JWT_SECRET = process.env.JWT_SECRET || 'datachat-secret-key-change-in-production'
 
 function authenticate(req, res, next) {
+  // Accept token from Authorization header OR ?token= query param (for file downloads)
+  let token = null
   const authHeader = req.headers.authorization
-  if (!authHeader?.startsWith('Bearer ')) {
+  if (authHeader?.startsWith('Bearer ')) {
+    token = authHeader.slice(7)
+  } else if (req.query.token) {
+    token = req.query.token
+  }
+
+  if (!token) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
-  const token = authHeader.slice(7)
   try {
     const decoded = jwt.verify(token, JWT_SECRET)
     req.user = decoded

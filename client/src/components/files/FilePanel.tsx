@@ -141,38 +141,28 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
     } catch { setPreview({ type: 'error', message: 'فشل تحميل المعاينة' }) }
   }
 
-  // ─── Download uploaded file (opens in Excel/associated app) ────────────────
-  const downloadFile = async (f: FileItem) => {
-    try {
-      const token = localStorage.getItem('token')
-      const res = await fetch(`/api/files/${projectId}/${f.id}/download`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      if (!res.ok) throw new Error()
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = fileName(f)
-      a.click()
-      URL.revokeObjectURL(url)
-    } catch { toast.error('فشل التحميل') }
+  // ─── Download uploaded file ──────────────────────────────────────────────────
+  const downloadFile = (f: FileItem) => {
+    const token = localStorage.getItem('token')
+    if (!token) { toast.error('يرجى تسجيل الدخول أولاً'); return }
+    const a = document.createElement('a')
+    a.href = `/api/files/${projectId}/${f.id}/download?token=${encodeURIComponent(token)}`
+    a.download = fileName(f)
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
 
   // ─── Download generated file ───────────────────────────────────────────────
-  const downloadGenFile = async (f: GenFile) => {
-    try {
-      const token = localStorage.getItem('token')
-      const res = await fetch(`/api/files/generated/${f.id}/download`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      if (!res.ok) throw new Error()
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url; a.download = fileName(f); a.click()
-      URL.revokeObjectURL(url)
-    } catch { toast.error('فشل التحميل') }
+  const downloadGenFile = (f: GenFile) => {
+    const token = localStorage.getItem('token')
+    if (!token) { toast.error('يرجى تسجيل الدخول أولاً'); return }
+    const a = document.createElement('a')
+    a.href = `/api/files/generated/${f.id}/download?token=${encodeURIComponent(token)}`
+    a.download = fileName(f)
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
 
   // ─── Drag & drop ───────────────────────────────────────────────────────────
