@@ -238,7 +238,7 @@ router.patch('/settings', async (req, res) => {
 
 router.post('/settings/test-api', async (req, res) => {
   try {
-    const { api_key } = req.body
+    const { api_key, provider } = req.body
     let keyToTest = api_key
     // if masked value sent, use the stored key
     if (!api_key || api_key.includes('•')) {
@@ -246,13 +246,29 @@ router.post('/settings/test-api', async (req, res) => {
       keyToTest = result.rows[0]?.api_key || process.env.GEMINI_API_KEY
     }
     if (!keyToTest) return res.status(400).json({ error: 'لم يتم إدخال مفتاح API' })
+
+    if (provider === 'openai') {
+      const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${keyToTest}` },
+        body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'hi' }], max_tokens: 5 })
+      })
+      if (openaiRes.ok) {
+        return res.json({ success: true, message: 'مفتاح OpenAI API صحيح ويعمل بشكل جيد ✓' })
+      }
+      const errText = await openaiRes.text()
+      if (openaiRes.status === 401) return res.status(400).json({ error: 'مفتاح OpenAI غير صحيح أو منتهي الصلاحية' })
+      if (openaiRes.status === 429) return res.status(400).json({ error: 'تم استنفاد حصة OpenAI API' })
+      return res.status(400).json({ error: `فشل التحقق (${openaiRes.status}): ${errText.substring(0, 200)}` })
+    }
+
     const { GoogleGenerativeAI } = require('@google/generative-ai')
     const testAI = new GoogleGenerativeAI(keyToTest)
     const model = testAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
     const result = await model.generateContent('قل "مرحبا" فقط')
     const text = result.response.text()
     if (text) {
-      res.json({ success: true, message: 'مفتاح API صحيح ويعمل بشكل جيد ✓' })
+      res.json({ success: true, message: 'مفتاح Gemini API صحيح ويعمل بشكل جيد ✓' })
     } else {
       res.status(400).json({ error: 'المفتاح لا يعمل بشكل صحيح' })
     }

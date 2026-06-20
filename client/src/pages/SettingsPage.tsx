@@ -146,7 +146,7 @@ export default function SettingsPage() {
         const result = await testAgentRouter(aiSettings.api_key, aiSettings.model || 'deepseek/deepseek-chat-v3-0324')
         setApiTestResult({ ok: result.ok, msg: result.msg, warn: result.warn } as any)
       } else {
-        const r = await api.post('/admin/settings/test-api', { api_key: aiSettings.api_key })
+        const r = await api.post('/admin/settings/test-api', { api_key: aiSettings.api_key, provider: aiSettings.provider })
         setApiTestResult({ ok: true, msg: r.data.message })
       }
     } catch (err: any) {
@@ -408,9 +408,10 @@ export default function SettingsPage() {
           {/* Provider selector */}
           <div>
             <label className="block text-sm font-semibold text-[var(--text)] mb-2">مزوّد الذكاء الاصطناعي</label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               {[
                 { id: 'gemini', label: 'Google Gemini', badge: 'خادم', icon: '🤖' },
+                { id: 'openai', label: 'OpenAI', badge: 'خادم', icon: '🟢' },
                 { id: 'agentrouter', label: 'AgentRouter', badge: 'متصفح مباشر', icon: '⚡' }
               ].map(p => (
                 <button
@@ -449,7 +450,7 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2 mb-1">
               <KeyRound size={16} className="text-primary-600" />
               <label className="text-sm font-semibold text-[var(--text)]">
-                {aiSettings.provider === 'agentrouter' ? 'مفتاح AgentRouter API' : 'مفتاح Gemini API'}
+                {aiSettings.provider === 'agentrouter' ? 'مفتاح AgentRouter API' : aiSettings.provider === 'openai' ? 'مفتاح OpenAI API' : 'مفتاح Gemini API'}
               </label>
               {aiSettings.has_api_key && !apiKeyChanged && (
                 <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">محفوظ</span>
@@ -459,7 +460,7 @@ export default function SettingsPage() {
               <input
                 className="input-field pe-20 font-mono text-sm"
                 type={showApiKey ? 'text' : 'password'}
-                placeholder={aiSettings.provider === 'agentrouter' ? 'sk-...' : 'AIzaSy...'}
+                placeholder={aiSettings.provider === 'agentrouter' ? 'sk-...' : aiSettings.provider === 'openai' ? 'sk-...' : 'AIzaSy...'}
                 value={aiSettings.api_key}
                 onChange={e => {
                   setAiSettings((p: any) => ({ ...p, api_key: e.target.value }))
@@ -507,6 +508,10 @@ export default function SettingsPage() {
                 <>احصل على مفتاحك من{' '}
                   <a href="https://agentrouter.org/console/token" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">agentrouter.org/console/token</a>.
                   المفتاح يُستخدم مباشرة من متصفحك ولا يُرسل للخادم إلا للحفظ المشفّر.</>
+              ) : aiSettings.provider === 'openai' ? (
+                <>احصل على مفتاحك من{' '}
+                  <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">platform.openai.com/api-keys</a>.
+                  المفتاح يبدأ بـ sk- ويُحفظ بشكل آمن على الخادم.</>
               ) : (
                 <>احصل على مفتاحك من{' '}
                   <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">Google AI Studio</a>.
@@ -518,9 +523,17 @@ export default function SettingsPage() {
           {/* Model selector */}
           <div>
             <label className="block text-sm font-semibold text-[var(--text)] mb-2">
-              {aiSettings.provider === 'agentrouter' ? 'نموذج AgentRouter' : 'نموذج Gemini'}
+              {aiSettings.provider === 'agentrouter' ? 'نموذج AgentRouter' : aiSettings.provider === 'openai' ? 'نموذج OpenAI' : 'نموذج Gemini'}
             </label>
-            {aiSettings.provider === 'agentrouter' ? (
+            {aiSettings.provider === 'openai' ? (
+              <select className="input-field" value={aiSettings.model} onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}>
+                <option value="gpt-4o-mini">GPT-4o Mini (موصى به — سريع واقتصادي)</option>
+                <option value="gpt-4o">GPT-4o (الأقوى)</option>
+                <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                <option value="gpt-3.5-turbo">GPT-3.5 Turbo (اقتصادي)</option>
+                <option value="o1-mini">o1 Mini (تفكير)</option>
+              </select>
+            ) : aiSettings.provider === 'agentrouter' ? (
               <div className="space-y-2">
                 <select
                   className="input-field"

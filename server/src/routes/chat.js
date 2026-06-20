@@ -822,35 +822,85 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
 
     const systemText = FILE_GEN_PROTOCOL
 
-    const selectedModel = aiConfig.model || 'gemini-2.5-flash'
+    const provider = aiConfig.provider || 'gemini'
+    const selectedModel = aiConfig.model || (provider === 'openai' ? 'gpt-4o-mini' : 'gemini-2.5-flash')
     const genAI = getGenAI(aiConfig.api_key)
 
-    const model = genAI.getGenerativeModel({
-      model: selectedModel,
-      generationConfig: {
-        temperature: parseFloat(aiConfig.temperature) || 0.7,
-      },
-      systemInstruction: { role: 'user', parts: [{ text: systemText }] }
-    })
-
-    const chatHistory = msgs.map(m => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }]
-    }))
-
-    const chat = model.startChat({ history: chatHistory })
-
     let fullResponse = ''
-    try {
-      const result = await chat.sendMessageStream(message)
-      for await (const chunk of result.stream) {
-        const text = chunk.text()
-        fullResponse += text
-        res.write(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`)
+
+    if (provider === 'openai') {
+      const apiKey = aiConfig.api_key || process.env.OPENAI_API_KEY || ''
+      if (!apiKey) {
+        fullResponse = 'عذراً، لم يتم ضبط مفتاح OpenAI API. يرجى إضافته في الإعدادات.'
+        res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
+      } else {
+        const openaiMessages = [
+          { role: 'system', content: systemText },
+          ...msgs.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+          { role: 'user', content: message }
+        ]
+        try {
+          const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body: JSON.stringify({ model: selectedModel, messages: openaiMessages, temperature: parseFloat(aiConfig.temperature) || 0.7, stream: true })
+          })
+          if (!openaiRes.ok) {
+            const errText = await openaiRes.text()
+            fullResponse = `عذراً، خطأ من OpenAI (${openaiRes.status}): ${errText.substring(0, 300)}`
+            res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
+          } else {
+            const reader = openaiRes.body.getReader()
+            const decoder = new TextDecoder()
+            let buf = ''
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              buf += decoder.decode(value, { stream: true })
+              const lines = buf.split('\n')
+              buf = lines.pop() || ''
+              for (const line of lines) {
+                const t = line.trim()
+                if (!t || !t.startsWith('data: ')) continue
+                const data = t.slice(6)
+                if (data === '[DONE]') continue
+                try {
+                  const parsed = JSON.parse(data)
+                  const delta = parsed.choices?.[0]?.delta?.content
+                  if (delta) { fullResponse += delta; res.write(`data: ${JSON.stringify({ type: 'text', content: delta })}\n\n`) }
+                } catch {}
+              }
+            }
+          }
+        } catch (aiErr) {
+          fullResponse = `عذراً، حدث خطأ في الاتصال بـ OpenAI: ${aiErr.message}`
+          res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
+        }
       }
-    } catch (aiErr) {
-      fullResponse = `عذراً، حدث خطأ في الاتصال بالذكاء الاصطناعي: ${aiErr.message}`
-      res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
+    } else {
+      const model = genAI.getGenerativeModel({
+        model: selectedModel,
+        generationConfig: {
+          temperature: parseFloat(aiConfig.temperature) || 0.7,
+        },
+        systemInstruction: { role: 'user', parts: [{ text: systemText }] }
+      })
+      const chatHistory = msgs.map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+      }))
+      const chat = model.startChat({ history: chatHistory })
+      try {
+        const result = await chat.sendMessageStream(message)
+        for await (const chunk of result.stream) {
+          const text = chunk.text()
+          fullResponse += text
+          res.write(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`)
+        }
+      } catch (aiErr) {
+        fullResponse = `عذراً، حدث خطأ في الاتصال بالذكاء الاصطناعي: ${aiErr.message}`
+        res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
+      }
     }
 
     // Parse file generation commands from AI response
@@ -893,12 +943,25 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
           ? `أنشئ ملف Word للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n${fileContents ? `\nالبيانات المتاحة:\n${fileContents.substring(0, 3000)}` : ''}\n\nالصيغة المطلوبة (اسم الملف ثم | ثم المحتوى بصيغة Markdown):\n[WORD_FILE]اسم_الملف|# العنوان الرئيسي\n\n## القسم الأول\n\nالمحتوى الكامل هنا...[/WORD_FILE]\n\nأخرج الوسم فقط لا غير.`
           : `أنشئ ملف Excel للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n${fileContents ? `\nالبيانات المتاحة:\n${fileContents.substring(0, 3000)}` : ''}\n\nالصيغة المطلوبة:\n[EXCEL_FILE]{"filename":"اسم_الملف","sheets":[{"name":"اسم الورقة","headers":["عمود1","عمود2"],"rows":[["قيمة1","قيمة2"]]}]}[/EXCEL_FILE]\n\nأخرج الوسم فقط لا غير.`
 
-        const fallbackModel = genAI.getGenerativeModel({
-          model: selectedModel,
-          generationConfig: { temperature: 0.3 }
-        })
-        const fallbackResult = await fallbackModel.generateContent(fallbackPrompt)
-        const fallbackText = fallbackResult.response.text()
+        let fallbackText = ''
+        if (provider === 'openai') {
+          const apiKey = aiConfig.api_key || process.env.OPENAI_API_KEY || ''
+          if (apiKey) {
+            const oaFbRes = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+              body: JSON.stringify({ model: selectedModel, messages: [{ role: 'system', content: systemText }, { role: 'user', content: fallbackPrompt }], temperature: 0.3, max_tokens: 4096 })
+            })
+            if (oaFbRes.ok) { const d = await oaFbRes.json(); fallbackText = d.choices?.[0]?.message?.content || '' }
+          }
+        } else {
+          const fallbackModel = genAI.getGenerativeModel({
+            model: selectedModel,
+            generationConfig: { temperature: 0.3 }
+          })
+          const fallbackResult = await fallbackModel.generateContent(fallbackPrompt)
+          fallbackText = fallbackResult.response.text()
+        }
         console.log('[FALLBACK] Response:', fallbackText.substring(0, 300))
 
         if (isHTML) {
