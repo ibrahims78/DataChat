@@ -474,72 +474,180 @@ router.get('/:projectId/download-zip', async (req, res) => {
 
     // ── Chat history as Word document ───────────────────────────────────────
     if (convResult.rows.length) {
-      const messagesResult = await db.query(
-        'SELECT role, content, created_at FROM messages WHERE conversation_id=$1 ORDER BY created_at',
-        [convResult.rows[0].id]
-      )
+      const [messagesResult, genByMsgResult] = await Promise.all([
+        db.query(
+          'SELECT id, role, content, created_at FROM messages WHERE conversation_id=$1 ORDER BY created_at',
+          [convResult.rows[0].id]
+        ),
+        db.query(
+          'SELECT message_id, original_name, display_name, file_type FROM generated_files WHERE project_id=$1',
+          [req.params.projectId]
+        )
+      ])
+
       if (messagesResult.rows.length) {
+        // Map message_id → list of generated files
+        const genByMsg = {}
+        for (const gf of genByMsgResult.rows) {
+          if (!gf.message_id) continue
+          if (!genByMsg[gf.message_id]) genByMsg[gf.message_id] = []
+          genByMsg[gf.message_id].push(gf)
+        }
+
+        // File type → folder mapping (matches ZIP structure)
+        const folderName = 'الملفات_المولدة'
+        const uploadFolder = 'الملفات_المرفوعة'
+
         const dateStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' })
         const children = []
 
-        // Title
+        // ── Cover ──────────────────────────────────────────────────────────
+        children.push(new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 120 },
+          children: [new TextRun({ text: 'DataChat', bold: true, size: 28, color: '9CA3AF' })]
+        }))
         children.push(new Paragraph({
           alignment: AlignmentType.CENTER,
           spacing: { after: 200 },
-          children: [new TextRun({ text: `سجل محادثة — ${project.name}`, bold: true, size: 36, color: '7C3AED' })]
+          children: [new TextRun({ text: `سجل المحادثة — ${project.name}`, bold: true, size: 40, color: '7C3AED' })]
         }))
-
-        // Date
         children.push(new Paragraph({
           alignment: AlignmentType.CENTER,
-          spacing: { after: 400 },
+          spacing: { after: 500 },
           children: [new TextRun({ text: dateStr, size: 22, color: '6B7280' })]
         }))
-
-        // Divider
         children.push(new Paragraph({
-          border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '7C3AED' } },
-          spacing: { after: 400 }
+          border: { bottom: { style: BorderStyle.SINGLE, size: 8, color: '7C3AED' } },
+          spacing: { after: 500 }
         }))
 
-        // Messages
+        // ── Messages ───────────────────────────────────────────────────────
         for (const m of messagesResult.rows) {
           const isUser = m.role === 'user'
           const timeStr = new Date(m.created_at).toLocaleString('ar-EG')
+          const bubbleColor = isUser ? 'EFF6FF' : 'F5F3FF'
+          const senderColor = isUser ? '1E40AF' : '7C3AED'
+          const senderLabel = isUser ? '👤  المستخدم' : '🤖  DataChat'
 
-          // Sender label + time
+          // Sender row
           children.push(new Paragraph({
             alignment: AlignmentType.RIGHT,
-            spacing: { before: 300, after: 80 },
+            spacing: { before: 320, after: 80 },
             children: [
-              new TextRun({ text: isUser ? '👤 المستخدم' : '🤖 DataChat', bold: true, size: 22, color: isUser ? '1E40AF' : '7C3AED' }),
-              new TextRun({ text: `   ${timeStr}`, size: 18, color: '9CA3AF' })
+              new TextRun({ text: senderLabel, bold: true, size: 22, color: senderColor }),
+              new TextRun({ text: `      ${timeStr}`, size: 18, color: 'B0B8C1' })
             ]
           }))
 
-          // Message bubble (shaded paragraph)
+          // Message lines
           const lines = m.content.split('\n').filter(l => l.trim())
           for (const line of lines) {
+            // Detect markdown bold **text**
+            const parts = line.split(/(\*\*[^*]+\*\*)/)
+            const runs = parts.map(p => {
+              if (p.startsWith('**') && p.endsWith('**')) {
+                return new TextRun({ text: p.slice(2, -2), bold: true, size: 22, color: '1F2937' })
+              }
+              return new TextRun({ text: p, size: 22, color: '1F2937' })
+            })
             children.push(new Paragraph({
               alignment: AlignmentType.RIGHT,
               spacing: { after: 60 },
-              shading: { type: ShadingType.SOLID, color: isUser ? 'EFF6FF' : 'F5F3FF' },
-              indent: { left: 200, right: 200 },
-              children: [new TextRun({ text: line, size: 22, color: '1F2937' })]
+              shading: { type: ShadingType.SOLID, color: bubbleColor },
+              indent: { left: 180, right: 180 },
+              children: runs
             }))
           }
 
-          // Small gap between messages
+          // ── Attached generated files for this message ───────────────────
+          const attachments = genByMsg[m.id] || []
+          if (attachments.length) {
+            const typeIcon = { excel: '📊', pdf: '📄', word: '📝', json: '📋', markdown: '📋', text: '📄' }
+            for (const af of attachments) {
+              const icon = typeIcon[af.file_type] || '📎'
+              const displayName = af.display_name || af.original_name
+              const relativePath = `${folderName}\\${displayName}`
+              children.push(new Paragraph({
+                alignment: AlignmentType.RIGHT,
+                spacing: { before: 80, after: 80 },
+                shading: { type: ShadingType.SOLID, color: 'EDE9FE' },
+                border: {
+                  top: { style: BorderStyle.SINGLE, size: 2, color: 'C4B5FD' },
+                  bottom: { style: BorderStyle.SINGLE, size: 2, color: 'C4B5FD' },
+                  left: { style: BorderStyle.SINGLE, size: 2, color: 'C4B5FD' },
+                  right: { style: BorderStyle.THICK, size: 12, color: '7C3AED' }
+                },
+                indent: { left: 180, right: 180 },
+                children: [
+                  new TextRun({ text: `${icon}  `, size: 20 }),
+                  new TextRun({ text: displayName, bold: true, size: 20, color: '5B21B6' }),
+                  new TextRun({ text: `    ← ${folderName}`, size: 18, color: '9CA3AF' })
+                ]
+              }))
+            }
+          }
+
           children.push(new Paragraph({ spacing: { after: 160 } }))
+        }
+
+        // ── File index section ─────────────────────────────────────────────
+        const allUploaded = filesResult.rows
+        const allGenerated = genFilesResult.rows
+
+        if (allUploaded.length || allGenerated.length) {
+          children.push(new Paragraph({
+            border: { top: { style: BorderStyle.SINGLE, size: 8, color: '7C3AED' } },
+            spacing: { before: 600, after: 400 }
+          }))
+          children.push(new Paragraph({
+            alignment: AlignmentType.RIGHT,
+            spacing: { after: 300 },
+            children: [new TextRun({ text: '📁  فهرس ملفات المشروع', bold: true, size: 28, color: '7C3AED' })]
+          }))
+
+          if (allUploaded.length) {
+            children.push(new Paragraph({
+              alignment: AlignmentType.RIGHT,
+              spacing: { after: 120 },
+              children: [new TextRun({ text: `📂  ${uploadFolder}`, bold: true, size: 22, color: '1E40AF' })]
+            }))
+            for (const f of allUploaded) {
+              children.push(new Paragraph({
+                alignment: AlignmentType.RIGHT,
+                spacing: { after: 60 },
+                indent: { right: 300 },
+                children: [
+                  new TextRun({ text: '▸  ', size: 20, color: '9CA3AF' }),
+                  new TextRun({ text: f.display_name || f.original_name, size: 20, color: '374151' })
+                ]
+              }))
+            }
+          }
+
+          if (allGenerated.length) {
+            children.push(new Paragraph({
+              alignment: AlignmentType.RIGHT,
+              spacing: { before: 200, after: 120 },
+              children: [new TextRun({ text: `📂  ${folderName}`, bold: true, size: 22, color: '7C3AED' })]
+            }))
+            for (const f of allGenerated) {
+              children.push(new Paragraph({
+                alignment: AlignmentType.RIGHT,
+                spacing: { after: 60 },
+                indent: { right: 300 },
+                children: [
+                  new TextRun({ text: '▸  ', size: 20, color: '9CA3AF' }),
+                  new TextRun({ text: f.display_name || f.original_name, size: 20, color: '374151' })
+                ]
+              }))
+            }
+          }
         }
 
         const doc = new Document({
           sections: [{
-            properties: {
-              page: {
-                margin: { top: 720, bottom: 720, left: 900, right: 900 }
-              }
-            },
+            properties: { page: { margin: { top: 720, bottom: 720, left: 900, right: 900 } } },
             children
           }]
         })
