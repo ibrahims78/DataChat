@@ -491,7 +491,8 @@ export default function SettingsPage() {
 
     const STRIP = new Set([
       'host','origin','referer','cf-connecting-ip',
-      'x-forwarded-for','cf-ray','cf-ipcountry','accept-encoding',
+      'x-forwarded-for','cf-ray','cf-ipcountry',
+      'accept-encoding','cookie',
     ])
     const headers = new Headers()
     for (const [k, v] of request.headers.entries()) {
@@ -499,8 +500,6 @@ export default function SettingsPage() {
       headers.set(k, v)
     }
     headers.set('Host', 'agentrouter.org')
-    headers.set('Origin', 'https://agentrouter.org')
-    headers.set('Referer', 'https://agentrouter.org/')
     headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
     headers.set('Accept-Language', 'en-US,en;q=0.9')
 
@@ -518,7 +517,7 @@ export default function SettingsPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          const code = `export default {\n  async fetch(request) {\n    const cors = {\n      'Access-Control-Allow-Origin': '*',\n      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',\n      'Access-Control-Allow-Headers': 'Content-Type, Authorization',\n    }\n    if (request.method === 'OPTIONS')\n      return new Response(null, { status: 204, headers: cors })\n\n    const url = new URL(request.url)\n    const target = 'https://agentrouter.org' + url.pathname + url.search\n\n    const STRIP = new Set([\n      'host','origin','referer','cf-connecting-ip',\n      'x-forwarded-for','cf-ray','cf-ipcountry','accept-encoding',\n    ])\n    const headers = new Headers()\n    for (const [k, v] of request.headers.entries()) {\n      if (STRIP.has(k.toLowerCase())) continue\n      headers.set(k, v)\n    }\n    headers.set('Host', 'agentrouter.org')\n    headers.set('Origin', 'https://agentrouter.org')\n    headers.set('Referer', 'https://agentrouter.org/')\n    headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')\n    headers.set('Accept-Language', 'en-US,en;q=0.9')\n\n    const resp = await fetch(new Request(target, {\n      method: request.method,\n      headers,\n      body: request.method !== 'GET' ? request.body : undefined,\n    }))\n\n    const out = new Headers(resp.headers)\n    out.set('Access-Control-Allow-Origin', '*')\n    return new Response(resp.body, { status: resp.status, headers: out })\n  }\n}`
+                          const code = `export default {\n  async fetch(request) {\n    const cors = {\n      'Access-Control-Allow-Origin': '*',\n      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',\n      'Access-Control-Allow-Headers': 'Content-Type, Authorization',\n    }\n    if (request.method === 'OPTIONS')\n      return new Response(null, { status: 204, headers: cors })\n\n    const url = new URL(request.url)\n    const target = 'https://agentrouter.org' + url.pathname + url.search\n\n    const STRIP = new Set([\n      'host','origin','referer','cf-connecting-ip',\n      'x-forwarded-for','cf-ray','cf-ipcountry',\n      'accept-encoding','cookie',\n    ])\n    const headers = new Headers()\n    for (const [k, v] of request.headers.entries()) {\n      if (STRIP.has(k.toLowerCase())) continue\n      headers.set(k, v)\n    }\n    headers.set('Host', 'agentrouter.org')\n    headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')\n    headers.set('Accept-Language', 'en-US,en;q=0.9')\n\n    const resp = await fetch(new Request(target, {\n      method: request.method,\n      headers,\n      body: request.method !== 'GET' ? request.body : undefined,\n    }))\n\n    const out = new Headers(resp.headers)\n    out.set('Access-Control-Allow-Origin', '*')\n    return new Response(resp.body, { status: resp.status, headers: out })\n  }\n}`
                           navigator.clipboard.writeText(code)
                           toast.success('تم نسخ كود Worker!')
                         }}

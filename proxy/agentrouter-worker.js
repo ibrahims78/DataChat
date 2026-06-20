@@ -29,10 +29,12 @@ export default {
     const targetPath = url.pathname + url.search
     const targetUrl = 'https://agentrouter.org' + targetPath
 
+    // Strip all proxy/identity headers — send a clean API request
+    // Do NOT set Origin/Referer pointing to agentrouter.org (triggers unauthorized_client_error)
     const STRIP = new Set([
       'host', 'origin', 'referer', 'cf-connecting-ip',
       'x-forwarded-for', 'cf-ray', 'cf-ipcountry',
-      'accept-encoding',
+      'accept-encoding', 'cookie',
     ])
     const newHeaders = new Headers()
     for (const [key, val] of request.headers.entries()) {
@@ -40,10 +42,10 @@ export default {
       newHeaders.set(key, val)
     }
     newHeaders.set('Host', 'agentrouter.org')
-    newHeaders.set('Origin', 'https://agentrouter.org')
-    newHeaders.set('Referer', 'https://agentrouter.org/')
+    // Use a realistic browser User-Agent to pass WAF checks
     newHeaders.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
     newHeaders.set('Accept-Language', 'en-US,en;q=0.9')
+    // No Origin or Referer — treat as direct API call, not a browser web session
 
     let body
     if (request.method !== 'GET' && request.method !== 'HEAD') {
