@@ -11,7 +11,7 @@ import toast from 'react-hot-toast'
 import PdfPageViewer from './PdfPageViewer'
 import ContentPreview from './ContentPreview'
 
-interface Message { id: number; role: string; content: string; created_at: string; rating?: number }
+interface Message { id: number; role: string; content: string; created_at: string; rating?: number; pending?: boolean }
 interface PagePreview { fileUrl: string; page: number; filename: string }
 interface ContentPreviewData { html: string; previewType: string; filename: string }
 
@@ -142,10 +142,17 @@ export default function ChatMessages({ messages, isTyping, typingStep, projectId
                       </div>
                     </div>
                   ) : (
-                    <div className="chat-bubble-user">
+                    <div className={`chat-bubble-user ${msg.pending ? 'opacity-60' : ''}`}>
                       <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                      <p className="text-xs text-white/70 mt-1 text-start">
-                        {format(new Date(msg.created_at), 'HH:mm')}
+                      <p className="text-xs text-white/70 mt-1 text-start flex items-center gap-1">
+                        {msg.pending ? (
+                          <>
+                            <span className="inline-block w-2.5 h-2.5 border-2 border-white/60 border-t-transparent rounded-full animate-spin" />
+                            <span>في الانتظار...</span>
+                          </>
+                        ) : (
+                          format(new Date(msg.created_at), 'HH:mm')
+                        )}
                       </p>
                     </div>
                   )}

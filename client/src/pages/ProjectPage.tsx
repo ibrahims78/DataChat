@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowRight, Upload, MoreHorizontal, Download, FolderOpen } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
@@ -32,13 +32,23 @@ export default function ProjectPage() {
   const [messagePreviews, setMessagePreviews] = useState<Record<number, { fileUrl: string; page: number; filename: string }>>({})
   const [contentPreviews, setContentPreviews] = useState<Record<number, { html: string; previewType: string; filename: string }>>({})
   const [showMobilePanel, setShowMobilePanel] = useState(false)
+  const [queueCount, setQueueCount] = useState(0)
   const tempAiIdRef = useRef<number>(0)
+
+  // Queue refs (useRef to avoid stale closures inside async functions)
+  const isProcessingRef = useRef(false)
+  const queueRef = useRef<Array<{ msgId: number; content: string }>>([])
+  const conversationIdRef = useRef<number | null>(null)
+  const projectIdRef = useRef<string | undefined>(id)
+
+  useEffect(() => { projectIdRef.current = id }, [id])
 
   const fetchProject = async () => {
     try {
       const res = await api.get(`/projects/${id}`)
       setProject(res.data)
       setMessages(res.data.messages || [])
+      conversationIdRef.current = res.data.conversation_id
       return res.data
     } catch { toast.error('فشل تحميل المشروع') }
     finally { setLoading(false) }
@@ -51,13 +61,12 @@ export default function ProjectPage() {
       const data = await fetchProject()
       if (!data) return
       const msgs: any[] = data.messages || []
-      // If last message is from user (no AI reply yet), poll until AI responds
       const lastMsg = msgs[msgs.length - 1]
       if (lastMsg && lastMsg.role === 'user') {
         let attempts = 0
         const poll = async () => {
           attempts++
-          if (attempts > 20) return // give up after ~40s
+          if (attempts > 20) return
           try {
             const res = await api.get(`/projects/${id}`)
             const newMsgs: any[] = res.data.messages || []
@@ -79,10 +88,15 @@ export default function ProjectPage() {
     return () => { if (pollTimer) clearTimeout(pollTimer) }
   }, [id])
 
-  const sendMessage = async (content: string) => {
-    if (!project?.conversation_id) return
-    const userMsg = { id: Date.now(), role: 'user', content, created_at: new Date().toISOString() }
-    setMessages(prev => [...prev, userMsg])
+  const sendMessageInternal = useCallback(async (content: string, pendingMsgId?: number) => {
+    const convId = conversationIdRef.current
+    if (!convId) return
+
+    // If this came from queue, mark it as no longer pending
+    if (pendingMsgId !== undefined) {
+      setMessages(prev => prev.map(m => m.id === pendingMsgId ? { ...m, pending: false } : m))
+    }
+
     setIsTyping(true)
     setTypingStep(tr('readingFile'))
     setStreamBuffer('')
@@ -99,10 +113,10 @@ export default function ProjectPage() {
     setMessages(prev => [...prev, aiMsg])
 
     try {
-      const response = await fetch(`/api/chat/${id}/message`, {
+      const response = await fetch(`/api/chat/${projectIdRef.current}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-        body: JSON.stringify({ message: content, conversationId: project.conversation_id })
+        body: JSON.stringify({ message: content, conversationId: convId })
       })
 
       if (response.status === 401) {
@@ -129,7 +143,6 @@ export default function ProjectPage() {
             const data = JSON.parse(line.slice(6))
             if (data.type === 'text') {
               fullText += data.content
-              // Strip ALL file command tags (complete and partial) from displayed text in real-time
               const FILE_TAGS = ['EXCEL_FILE', 'PDF_FILE', 'HTML_FILE', 'MD_FILE', 'TXT_FILE', 'JSON_FILE', 'WORD_FILE', 'EXTRACT_PAGE', 'SHOW_PAGE', 'SHOW_CONTENT']
               let displayText = fullText
               for (const tag of FILE_TAGS) {
@@ -140,7 +153,6 @@ export default function ProjectPage() {
               setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: displayText } : m))
             } else if (data.type === 'update_content') {
               fullText = data.content
-              // Strip the PAGE_PREVIEW marker from displayed text (it's only for DB storage)
               const displayContent = data.content
                 .replace(/\n@@PAGE_PREVIEW@@[\s\S]*?@@END_PREVIEW@@/g, '')
                 .replace(/\n@@CONTENT_PREVIEW@@[\s\S]*?@@END_CONTENT_PREVIEW@@/g, '')
@@ -185,8 +197,37 @@ export default function ProjectPage() {
       clearInterval(stepInterval)
       setIsTyping(false)
       setTypingStep('')
+
+      // Process next message in queue
+      if (queueRef.current.length > 0) {
+        const next = queueRef.current.shift()!
+        setQueueCount(queueRef.current.length)
+        // Small delay so UI updates before next processing starts
+        setTimeout(() => sendMessageInternal(next.content, next.msgId), 300)
+      } else {
+        isProcessingRef.current = false
+        setQueueCount(0)
+      }
     }
-  }
+  }, [navigate, tr])
+
+  const sendMessage = useCallback((content: string) => {
+    const userMsgId = Date.now()
+    const userMsg = { id: userMsgId, role: 'user', content, created_at: new Date().toISOString() }
+
+    if (isProcessingRef.current) {
+      // Add to queue and show as pending in chat
+      setMessages(prev => [...prev, { ...userMsg, pending: true }])
+      queueRef.current = [...queueRef.current, { msgId: userMsgId, content }]
+      setQueueCount(queueRef.current.length)
+      return
+    }
+
+    // Not processing — send immediately
+    isProcessingRef.current = true
+    setMessages(prev => [...prev, userMsg])
+    sendMessageInternal(content)
+  }, [sendMessageInternal])
 
   const handleFileUploaded = async (_file: any) => {
     await fetchProject()
@@ -305,7 +346,8 @@ export default function ProjectPage() {
           />
           <ChatInput
             onSend={sendMessage}
-            disabled={isTyping}
+            disabled={false}
+            queueCount={queueCount}
             projectId={parseInt(id!)}
             onFileUploaded={handleFileUploaded}
           />

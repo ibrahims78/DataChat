@@ -10,11 +10,12 @@ import toast from 'react-hot-toast'
 interface Props {
   onSend: (msg: string) => void
   disabled: boolean
+  queueCount?: number
   projectId: number
   onFileUploaded: (file: any) => void
 }
 
-export default function ChatInput({ onSend, disabled, projectId, onFileUploaded }: Props) {
+export default function ChatInput({ onSend, disabled, queueCount = 0, projectId, onFileUploaded }: Props) {
   const [text, setText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { lang } = useTheme()
@@ -34,7 +35,7 @@ export default function ChatInput({ onSend, disabled, projectId, onFileUploaded 
 
   const handleSend = () => {
     const trimmed = text.trim()
-    if (!trimmed || disabled) return
+    if (!trimmed) return
     onSend(trimmed)
     setText('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -87,6 +88,12 @@ export default function ChatInput({ onSend, disabled, projectId, onFileUploaded 
           <span>جاري الرفع {uploadProgress < 95 ? `${uploadProgress}%` : '— جاري المعالجة...'} — لا تحدّث الصفحة</span>
         </div>
       )}
+      {queueCount > 0 && (
+        <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 py-1 animate-fade-in">
+          <span className="inline-block w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin shrink-0" />
+          <span>{queueCount === 1 ? 'سؤال واحد في الانتظار' : `${queueCount} أسئلة في الانتظار`} — سيُعالجها الذكاء بالترتيب</span>
+        </div>
+      )}
       <div className="flex items-end gap-3 bg-[var(--bg)] rounded-2xl border border-[var(--border)] px-4 py-2 focus-within:border-primary-400 transition-colors">
         <button onClick={open} disabled={uploading}
           className="p-1.5 rounded-lg hover:bg-[var(--surface)] text-[var(--muted)] transition-colors shrink-0 self-end mb-0.5"
@@ -102,10 +109,9 @@ export default function ChatInput({ onSend, disabled, projectId, onFileUploaded 
           value={text}
           onChange={e => { setText(e.target.value); autoResize() }}
           onKeyDown={handleKeyDown}
-          disabled={disabled}
           rows={1}
         />
-        <button onClick={handleSend} disabled={!text.trim() || disabled}
+        <button onClick={handleSend} disabled={!text.trim()}
           className="p-2 rounded-xl bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0 self-end">
           <Send size={16} />
         </button>
