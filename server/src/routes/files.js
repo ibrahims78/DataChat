@@ -7,6 +7,7 @@ const XLSX = require('xlsx')
 const pdfParse = require('pdf-parse')
 const mammoth = require('mammoth')
 const { parse } = require('csv-parse/sync')
+const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle, Table, TableRow, TableCell, WidthType, ShadingType } = require('docx')
 const db = require('../lib/db')
 const { authenticate } = require('../middleware/auth')
 
@@ -471,24 +472,80 @@ router.get('/:projectId/download-zip', async (req, res) => {
       }
     }
 
-    // ── Chat history as Excel ───────────────────────────────────────────────
+    // ── Chat history as Word document ───────────────────────────────────────
     if (convResult.rows.length) {
       const messagesResult = await db.query(
         'SELECT role, content, created_at FROM messages WHERE conversation_id=$1 ORDER BY created_at',
         [convResult.rows[0].id]
       )
       if (messagesResult.rows.length) {
-        const wb = XLSX.utils.book_new()
-        const rows = messagesResult.rows.map(m => ({
-          'المرسل': m.role === 'user' ? 'المستخدم' : 'DataChat',
-          'الرسالة': m.content,
-          'الوقت': new Date(m.created_at).toLocaleString('ar-EG')
+        const dateStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' })
+        const children = []
+
+        // Title
+        children.push(new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 200 },
+          children: [new TextRun({ text: `سجل محادثة — ${project.name}`, bold: true, size: 36, color: '7C3AED' })]
         }))
-        const ws = XLSX.utils.json_to_sheet(rows)
-        ws['!cols'] = [{ wch: 12 }, { wch: 80 }, { wch: 20 }]
-        XLSX.utils.book_append_sheet(wb, ws, 'المحادثة')
-        const chatBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
-        archive.append(chatBuffer, { name: 'المحادثة.xlsx' })
+
+        // Date
+        children.push(new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 400 },
+          children: [new TextRun({ text: dateStr, size: 22, color: '6B7280' })]
+        }))
+
+        // Divider
+        children.push(new Paragraph({
+          border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '7C3AED' } },
+          spacing: { after: 400 }
+        }))
+
+        // Messages
+        for (const m of messagesResult.rows) {
+          const isUser = m.role === 'user'
+          const timeStr = new Date(m.created_at).toLocaleString('ar-EG')
+
+          // Sender label + time
+          children.push(new Paragraph({
+            alignment: AlignmentType.RIGHT,
+            spacing: { before: 300, after: 80 },
+            children: [
+              new TextRun({ text: isUser ? '👤 المستخدم' : '🤖 DataChat', bold: true, size: 22, color: isUser ? '1E40AF' : '7C3AED' }),
+              new TextRun({ text: `   ${timeStr}`, size: 18, color: '9CA3AF' })
+            ]
+          }))
+
+          // Message bubble (shaded paragraph)
+          const lines = m.content.split('\n').filter(l => l.trim())
+          for (const line of lines) {
+            children.push(new Paragraph({
+              alignment: AlignmentType.RIGHT,
+              spacing: { after: 60 },
+              shading: { type: ShadingType.SOLID, color: isUser ? 'EFF6FF' : 'F5F3FF' },
+              indent: { left: 200, right: 200 },
+              children: [new TextRun({ text: line, size: 22, color: '1F2937' })]
+            }))
+          }
+
+          // Small gap between messages
+          children.push(new Paragraph({ spacing: { after: 160 } }))
+        }
+
+        const doc = new Document({
+          sections: [{
+            properties: {
+              page: {
+                margin: { top: 720, bottom: 720, left: 900, right: 900 }
+              }
+            },
+            children
+          }]
+        })
+
+        const chatBuffer = await Packer.toBuffer(doc)
+        archive.append(chatBuffer, { name: 'المحادثة.docx' })
       }
     }
 
