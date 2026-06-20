@@ -823,12 +823,12 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
     const systemText = FILE_GEN_PROTOCOL
 
     const provider = aiConfig.provider || 'gemini'
-    const selectedModel = aiConfig.model || (provider === 'openai' ? 'gpt-4o-mini' : provider === 'agentrouter' ? 'deepseek/deepseek-chat-v3-0324' : 'gemini-2.5-flash')
+    const selectedModel = aiConfig.model || (provider === 'openai' ? 'gpt-4o-mini' : 'gemini-2.5-flash')
     const genAI = getGenAI(aiConfig.api_key)
 
     let fullResponse = ''
 
-    // Helper: stream OpenAI-compatible endpoint (used for both OpenAI and AgentRouter)
+    // Helper: stream OpenAI-compatible endpoint
     const streamOpenAICompatible = async (endpoint, apiKey, model, chatMessages, temperature) => {
       const arRes = await fetch(endpoint, {
         method: 'POST',
@@ -873,47 +873,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       }
     }
 
-    if (provider === 'agentrouter') {
-      const apiKey = aiConfig.api_key || ''
-      const proxyUrl = (aiConfig.proxy_url || '').trim()
-
-      if (!apiKey) {
-        fullResponse = `عذراً، لم يتم ضبط مفتاح AgentRouter API. يرجى إضافته في الإعدادات.`
-        res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
-      } else if (proxyUrl) {
-        // ── Server-side streaming via Cloudflare Worker proxy ──
-        // The Worker relays requests using Cloudflare IPs (not blocked by agentrouter WAF).
-        const endpoint = `${proxyUrl.replace(/\/$/, '')}/v1/chat/completions`
-        const chatMessages = [
-          { role: 'system', content: systemText },
-          ...msgs.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
-          { role: 'user', content: message }
-        ]
-        console.log(`[AgentRouter] streaming via proxy: ${endpoint}`)
-        try {
-          await streamOpenAICompatible(endpoint, apiKey, selectedModel, chatMessages, parseFloat(aiConfig.temperature) || 0.7)
-        } catch (arErr) {
-          fullResponse = `❌ خطأ AgentRouter (Proxy): ${arErr.message}`
-          res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
-        }
-      } else {
-        // ── Fallback: browser-direct (no proxy configured) ──
-        // Server IPs are WAF-blocked; delegate to the user's browser instead.
-        const chatMessages = [
-          { role: 'system', content: systemText },
-          ...msgs.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
-          { role: 'user', content: message }
-        ]
-        res.write(`data: ${JSON.stringify({
-          type: 'use_client_ar',
-          config: { apiKey, model: selectedModel, temperature: parseFloat(aiConfig.temperature) || 0.7 },
-          messages: chatMessages,
-          conversationId
-        })}\n\n`)
-        res.end()
-        return
-      }
-    } else if (provider === 'openai') {
+    if (provider === 'openai') {
       const endpoint = 'https://api.openai.com/v1/chat/completions'
       const apiKey = aiConfig.api_key || process.env.OPENAI_API_KEY || ''
       if (!apiKey) {
@@ -1337,9 +1297,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
   }
 })
 
-// ── Browser-direct endpoints for AgentRouter ─────────────────────────────────
-
-// GET /:projectId/context — returns everything the browser needs to call AgentRouter directly
+// GET /:projectId/context — returns project context for external tools
 router.get('/:projectId/context', async (req, res) => {
   try {
     const projectCheck = await db.query(
@@ -1348,11 +1306,10 @@ router.get('/:projectId/context', async (req, res) => {
     )
     if (!projectCheck.rows.length) return res.status(404).json({ error: 'Project not found' })
 
-    // AI settings (including real API key for browser-direct use)
+    // AI settings
     const aiResult = await db.query('SELECT * FROM ai_settings WHERE id=1')
     const aiConfig = aiResult.rows[0] || {}
     const provider = aiConfig.provider || 'gemini'
-    if (provider !== 'agentrouter') return res.status(400).json({ error: 'Provider is not agentrouter' })
 
     // Files
     const filesResult = await db.query(
@@ -1435,9 +1392,9 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       history,
       aiConfig: {
         provider,
-        model: aiConfig.model || 'deepseek/deepseek-chat-v3-0324',
+        model: aiConfig.model || 'gemini-2.5-flash',
         temperature: parseFloat(aiConfig.temperature) || 0.7,
-        apiKey: aiConfig.api_key || process.env.AGENTROUTER_API_KEY || ''
+        apiKey: ''
       }
     })
   } catch (err) {

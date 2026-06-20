@@ -263,64 +263,6 @@ router.post('/settings/test-api', async (req, res) => {
       return res.status(400).json({ error: `فشل التحقق (${openaiRes.status}): ${errText.substring(0, 200)}` })
     }
 
-    if (provider === 'agentrouter') {
-      const { model: modelToTest, proxy_url: proxyUrlParam } = req.body
-      const arModel = modelToTest || 'deepseek/deepseek-chat-v3-0324'
-      // Use stored proxy_url if not passed in body
-      let proxyUrl = proxyUrlParam
-      if (!proxyUrl) {
-        const cfgRow = await db.query('SELECT proxy_url FROM ai_settings WHERE id=1')
-        proxyUrl = cfgRow.rows[0]?.proxy_url || ''
-      }
-      const endpoint = proxyUrl
-        ? `${proxyUrl.replace(/\/$/, '')}/v1/chat/completions`
-        : 'https://agentrouter.org/v1/chat/completions'
-      console.log(`[AgentRouter Test] key=${keyToTest.substring(0,8)}... model=${arModel} proxy=${proxyUrl || 'none'}`)
-      try {
-        const arRes = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${keyToTest}`,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
-          },
-          body: JSON.stringify({
-            model: arModel,
-            messages: [{ role: 'user', content: 'hi' }],
-            max_tokens: 5,
-            stream: false
-          })
-        })
-        const arText = await arRes.text()
-        const arContentType = arRes.headers.get('content-type') || ''
-        console.log(`[AgentRouter Test] status=${arRes.status} body=${arText.substring(0,300)}`)
-        if (arContentType.includes('text/html') || arText.trimStart().startsWith('<')) {
-          return res.status(400).json({ error: proxyUrl
-            ? 'الـ Proxy يُعيد HTML من WAF — تأكد من نشر Worker بشكل صحيح.'
-            : 'الخادم محجوب من WAF — ضع رابط Cloudflare Worker في حقل Proxy URL أدناه.'
-          })
-        }
-        if (arRes.ok) {
-          return res.json({ success: true, message: proxyUrl
-            ? '✅ مفتاح AgentRouter يعمل عبر الـ Proxy بشكل صحيح'
-            : '✅ مفتاح AgentRouter صحيح'
-          })
-        }
-        let arMsg = ''
-        try { arMsg = JSON.parse(arText)?.error?.message || JSON.parse(arText)?.message || '' } catch {}
-        const detail = arMsg ? `: ${arMsg}` : `: ${arText.substring(0, 200)}`
-        if (arRes.status === 401) return res.status(400).json({ error: `مفتاح AgentRouter غير صحيح أو منتهي الصلاحية${detail}` })
-        if (arRes.status === 403) return res.status(400).json({ error: `الوصول محجوب${detail}` })
-        if (arRes.status === 404) return res.status(400).json({ error: `النموذج "${arModel}" غير موجود${detail}` })
-        if (arRes.status === 429) return res.status(400).json({ error: `تم استنفاد الحصة (Rate limit)${detail}` })
-        return res.status(400).json({ error: `فشل التحقق (${arRes.status})${detail}` })
-      } catch (arErr) {
-        console.error('[AgentRouter Test] fetch error:', arErr.message)
-        return res.status(400).json({ error: `فشل الاتصال: ${arErr.message}` })
-      }
-    }
-
     const { GoogleGenerativeAI } = require('@google/generative-ai')
     const testAI = new GoogleGenerativeAI(keyToTest)
     const model = testAI.getGenerativeModel({ model: 'gemini-2.5-flash' })

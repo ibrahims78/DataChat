@@ -4,7 +4,6 @@ import { useTheme } from '../contexts/ThemeContext'
 import { useT } from '../i18n/translations'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../lib/api'
-import { testAgentRouter } from '../lib/agentrouter'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../components/ui/ConfirmModal'
 
@@ -14,8 +13,7 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('stats')
   const [stats, setStats] = useState<any>(null)
   const [users, setUsers] = useState<any[]>([])
-  const [aiSettings, setAiSettings] = useState<any>({ system_prompt: '', temperature: 0.7, model: 'gemini-2.5-flash', api_key: '', provider: 'gemini', proxy_url: '' })
-  const [showWorkerCode, setShowWorkerCode] = useState(false)
+  const [aiSettings, setAiSettings] = useState<any>({ system_prompt: '', temperature: 0.7, model: 'gemini-2.5-flash', api_key: '', provider: 'gemini' })
   const [showApiKey, setShowApiKey] = useState(false)
   const [apiKeyChanged, setApiKeyChanged] = useState(false)
   const [testingApi, setTestingApi] = useState(false)
@@ -142,12 +140,6 @@ export default function SettingsPage() {
     setTestingApi(true)
     setApiTestResult(null)
     try {
-      // AgentRouter without proxy → test directly from browser (server IPs are WAF-blocked)
-      if (aiSettings.provider === 'agentrouter' && !aiSettings.proxy_url?.trim()) {
-        const result = await testAgentRouter(aiSettings.api_key, aiSettings.model || 'deepseek/deepseek-chat-v3-0324')
-        setApiTestResult({ ok: result.ok, msg: result.msg })
-        return
-      }
       const r = await api.post('/admin/settings/test-api', {
         api_key: aiSettings.api_key,
         provider: aiSettings.provider,
@@ -417,7 +409,6 @@ export default function SettingsPage() {
               {[
                 { id: 'gemini', label: 'Google Gemini', badge: 'خادم', icon: '🤖' },
                 { id: 'openai', label: 'OpenAI', badge: 'خادم', icon: '🟢' },
-                { id: 'agentrouter', label: 'AgentRouter', badge: 'متصفح مباشر', icon: '⚡' }
               ].map(p => (
                 <button
                   key={p.id}
@@ -440,103 +431,6 @@ export default function SettingsPage() {
                 </button>
               ))}
             </div>
-            {aiSettings.provider === 'agentrouter' && (
-              <div className="mt-3 space-y-3">
-                {/* Proxy URL input */}
-                <div className="border border-[var(--border)] rounded-xl p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">🔗</span>
-                    <label className="text-sm font-semibold text-[var(--text)]">Cloudflare Worker Proxy URL</label>
-                    {aiSettings.proxy_url && (
-                      <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">مضبوط</span>
-                    )}
-                  </div>
-                  <input
-                    className="input-field font-mono text-sm"
-                    type="url"
-                    placeholder="https://agentrouter-proxy.your-name.workers.dev"
-                    value={aiSettings.proxy_url || ''}
-                    onChange={e => setAiSettings((p: any) => ({ ...p, proxy_url: e.target.value }))}
-                  />
-                  <p className="text-xs text-[var(--muted)]">
-                    {aiSettings.proxy_url
-                      ? '✅ الطلبات ستُرسل عبر السيرفر → Cloudflare Worker → agentrouter.org (يتجاوز حجب WAF)'
-                      : 'بدون proxy: الطلبات تُرسل من المتصفح مباشرةً (قد تكون محجوبة).'}
-                  </p>
-                  {/* Instructions */}
-                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 space-y-2">
-                    <p className="text-xs font-semibold text-blue-800 dark:text-blue-300">⚡ كيف تُعدّ Cloudflare Worker (مجاناً في 3 دقائق):</p>
-                    <ol className="text-xs text-blue-700 dark:text-blue-400 space-y-1 list-decimal list-inside">
-                      <li>سجّل في <a href="https://workers.cloudflare.com" target="_blank" rel="noopener noreferrer" className="underline">workers.cloudflare.com</a> (مجاناً)</li>
-                      <li>أنشئ Worker جديد → اضغط زر "كود Worker" أدناه → الصق الكود</li>
-                      <li>اضغط Deploy — ستحصل على رابط مثل: <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">agentrouter-proxy.xxx.workers.dev</code></li>
-                      <li>الصق الرابط في الحقل أعلاه ثم احفظ</li>
-                    </ol>
-                  </div>
-                  {/* Worker code toggle */}
-                  <button
-                    type="button"
-                    onClick={() => setShowWorkerCode(v => !v)}
-                    className="btn-ghost text-sm flex items-center gap-1.5"
-                  >
-                    {showWorkerCode ? '▲ إخفاء كود Worker' : '▼ عرض كود Worker'}
-                  </button>
-                  {showWorkerCode && (
-                    <div className="relative">
-                      <pre className="bg-gray-900 text-green-400 text-xs rounded-lg p-4 overflow-auto max-h-64 whitespace-pre font-mono leading-relaxed">{`export default {
-  async fetch(request) {
-    const cors = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    }
-    if (request.method === 'OPTIONS')
-      return new Response(null, { status: 204, headers: cors })
-
-    const url = new URL(request.url)
-    const target = 'https://agentrouter.org' + url.pathname + url.search
-
-    const STRIP = new Set([
-      'host','origin','referer','cf-connecting-ip',
-      'x-forwarded-for','cf-ray','cf-ipcountry',
-      'accept-encoding','cookie',
-    ])
-    const headers = new Headers()
-    for (const [k, v] of request.headers.entries()) {
-      if (STRIP.has(k.toLowerCase())) continue
-      headers.set(k, v)
-    }
-    headers.set('Host', 'agentrouter.org')
-    headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
-    headers.set('Accept-Language', 'en-US,en;q=0.9')
-
-    const resp = await fetch(new Request(target, {
-      method: request.method,
-      headers,
-      body: request.method !== 'GET' ? request.body : undefined,
-    }))
-
-    const out = new Headers(resp.headers)
-    out.set('Access-Control-Allow-Origin', '*')
-    return new Response(resp.body, { status: resp.status, headers: out })
-  }
-}`}</pre>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const code = `export default {\n  async fetch(request) {\n    const cors = {\n      'Access-Control-Allow-Origin': '*',\n      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',\n      'Access-Control-Allow-Headers': 'Content-Type, Authorization',\n    }\n    if (request.method === 'OPTIONS')\n      return new Response(null, { status: 204, headers: cors })\n\n    const url = new URL(request.url)\n    const target = 'https://agentrouter.org' + url.pathname + url.search\n\n    const STRIP = new Set([\n      'host','origin','referer','cf-connecting-ip',\n      'x-forwarded-for','cf-ray','cf-ipcountry',\n      'accept-encoding','cookie',\n    ])\n    const headers = new Headers()\n    for (const [k, v] of request.headers.entries()) {\n      if (STRIP.has(k.toLowerCase())) continue\n      headers.set(k, v)\n    }\n    headers.set('Host', 'agentrouter.org')\n    headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')\n    headers.set('Accept-Language', 'en-US,en;q=0.9')\n\n    const resp = await fetch(new Request(target, {\n      method: request.method,\n      headers,\n      body: request.method !== 'GET' ? request.body : undefined,\n    }))\n\n    const out = new Headers(resp.headers)\n    out.set('Access-Control-Allow-Origin', '*')\n    return new Response(resp.body, { status: resp.status, headers: out })\n  }\n}`
-                          navigator.clipboard.writeText(code)
-                          toast.success('تم نسخ كود Worker!')
-                        }}
-                        className="absolute top-2 end-2 text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded"
-                      >
-                        نسخ
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* API Key */}
@@ -544,7 +438,7 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2 mb-1">
               <KeyRound size={16} className="text-primary-600" />
               <label className="text-sm font-semibold text-[var(--text)]">
-                {aiSettings.provider === 'agentrouter' ? 'مفتاح AgentRouter API' : aiSettings.provider === 'openai' ? 'مفتاح OpenAI API' : 'مفتاح Gemini API'}
+                {aiSettings.provider === 'openai' ? 'مفتاح OpenAI API' : 'مفتاح Gemini API'}
               </label>
               {aiSettings.has_api_key && !apiKeyChanged && (
                 <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">محفوظ</span>
@@ -554,7 +448,7 @@ export default function SettingsPage() {
               <input
                 className="input-field pe-20 font-mono text-sm"
                 type={showApiKey ? 'text' : 'password'}
-                placeholder={aiSettings.provider === 'agentrouter' ? 'الصق مفتاح agentrouter.org هنا...' : aiSettings.provider === 'openai' ? 'sk-...' : 'AIzaSy...'}
+                placeholder={aiSettings.provider === 'openai' ? 'sk-...' : 'AIzaSy...'}
                 value={aiSettings.api_key}
                 onChange={e => {
                   setAiSettings((p: any) => ({ ...p, api_key: e.target.value }))
@@ -588,11 +482,7 @@ export default function SettingsPage() {
               )}
             </div>
             <p className="text-xs text-[var(--muted)]">
-              {aiSettings.provider === 'agentrouter' ? (
-                <>احصل على مفتاحك من{' '}
-                  <a href="https://agentrouter.org/console/token" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">agentrouter.org/console/token</a>.
-                  المفتاح يُحفظ بشكل آمن على الخادم ويُستخدم للاتصال بـ agentrouter.org.</>
-              ) : aiSettings.provider === 'openai' ? (
+              {aiSettings.provider === 'openai' ? (
                 <>احصل على مفتاحك من{' '}
                   <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">platform.openai.com/api-keys</a>.
                   المفتاح يبدأ بـ sk- ويُحفظ بشكل آمن على الخادم.</>
@@ -607,7 +497,7 @@ export default function SettingsPage() {
           {/* Model selector */}
           <div>
             <label className="block text-sm font-semibold text-[var(--text)] mb-2">
-              {aiSettings.provider === 'agentrouter' ? 'نموذج AgentRouter' : aiSettings.provider === 'openai' ? 'نموذج OpenAI' : 'نموذج Gemini'}
+              {aiSettings.provider === 'openai' ? 'نموذج OpenAI' : 'نموذج Gemini'}
             </label>
             {aiSettings.provider === 'openai' ? (
               <select className="input-field" value={aiSettings.model} onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}>
@@ -617,48 +507,6 @@ export default function SettingsPage() {
                 <option value="gpt-3.5-turbo">GPT-3.5 Turbo (اقتصادي)</option>
                 <option value="o1-mini">o1 Mini (تفكير)</option>
               </select>
-            ) : aiSettings.provider === 'agentrouter' ? (
-              <div className="space-y-2">
-                <select
-                  className="input-field"
-                  value={aiSettings.model}
-                  onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value === '__custom__' ? '' : e.target.value }))}>
-                  <optgroup label="DeepSeek">
-                    <option value="deepseek/deepseek-chat-v3-0324">DeepSeek V3 (موصى به)</option>
-                    <option value="deepseek/deepseek-r1">DeepSeek R1 (تفكير)</option>
-                    <option value="deepseek/deepseek-chat">DeepSeek Chat</option>
-                  </optgroup>
-                  <optgroup label="Google Gemini">
-                    <option value="google/gemini-2.5-flash">Gemini 2.5 Flash</option>
-                    <option value="google/gemini-2.5-pro">Gemini 2.5 Pro</option>
-                  </optgroup>
-                  <optgroup label="Anthropic Claude">
-                    <option value="anthropic/claude-sonnet-4-5">Claude Sonnet 4.5</option>
-                    <option value="anthropic/claude-haiku-3-5">Claude Haiku 3.5</option>
-                  </optgroup>
-                  <optgroup label="OpenAI">
-                    <option value="openai/gpt-4o">GPT-4o</option>
-                    <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
-                  </optgroup>
-                  <optgroup label="Zhipu GLM (مجاني)">
-                    <option value="glm-4-flash">GLM-4 Flash (مجاني)</option>
-                    <option value="glm4.5">GLM-4.5</option>
-                    <option value="glm-4.6">GLM-4.6</option>
-                  </optgroup>
-                  <optgroup label="Qwen">
-                    <option value="qwen/qwen-2.5-72b-instruct">Qwen 2.5 72B</option>
-                    <option value="qwen/qwen-plus">Qwen Plus</option>
-                  </optgroup>
-                  <option value="__custom__">نموذج مخصص (اكتبه يدوياً)</option>
-                </select>
-                <input
-                  className="input-field font-mono text-sm"
-                  placeholder="مثال: deepseek/deepseek-chat-v3-0324"
-                  value={aiSettings.model}
-                  onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}
-                />
-                <p className="text-xs text-[var(--muted)]">يمكنك الاختيار من القائمة أو كتابة معرّف النموذج يدوياً.</p>
-              </div>
             ) : (
               <select className="input-field" value={aiSettings.model} onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}>
                 <option value="gemini-2.5-flash">Gemini 2.5 Flash (موصى به)</option>
