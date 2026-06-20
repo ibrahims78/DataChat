@@ -1,6 +1,28 @@
 const express = require('express')
+const path = require('path')
+const fs = require('fs')
 const db = require('../lib/db')
 const { authenticate } = require('../middleware/auth')
+
+const UPLOADS_DIR = path.join(__dirname, '../../../uploads')
+
+function deleteProjectDir(userId, projectId) {
+  try {
+    const dir = path.join(UPLOADS_DIR, 'users', String(userId), 'projects', String(projectId))
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true })
+  } catch (e) {
+    console.error('Error deleting project dir:', e.message)
+  }
+}
+
+function deleteProjectFiles(files) {
+  for (const f of files) {
+    try {
+      const flat = path.join(UPLOADS_DIR, f.stored_name)
+      if (fs.existsSync(flat)) fs.unlink(flat, () => {})
+    } catch {}
+  }
+}
 
 const router = express.Router()
 router.use(authenticate)
@@ -119,7 +141,30 @@ router.delete('/:id', async (req, res) => {
     const check = await db.query('SELECT * FROM projects WHERE id=$1', [req.params.id])
     if (!check.rows.length) return res.status(404).json({ error: 'Not found' })
     if (req.user.role !== 'admin' && check.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
-    await db.query('DELETE FROM projects WHERE id=$1', [req.params.id])
+    const project = check.rows[0]
+
+    // Fetch all uploaded + generated files before cascade-deleting from DB
+    const [filesRes, genFilesRes] = await Promise.all([
+      db.query('SELECT stored_name FROM files WHERE project_id=$1', [project.id]),
+      db.query('SELECT stored_name FROM generated_files WHERE project_id=$1', [project.id])
+    ])
+
+    await db.query('DELETE FROM projects WHERE id=$1', [project.id])
+
+    // Delete structured project directory (new uploads)
+    deleteProjectDir(project.user_id, project.id)
+
+    // Also clean up any legacy flat-stored files for this project
+    deleteProjectFiles(filesRes.rows)
+
+    // Delete generated files
+    for (const f of genFilesRes.rows) {
+      try {
+        const p = path.join(UPLOADS_DIR, 'generated', f.stored_name)
+        if (fs.existsSync(p)) fs.unlink(p, () => {})
+      } catch {}
+    }
+
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })

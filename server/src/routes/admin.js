@@ -1,9 +1,47 @@
 const express = require('express')
+const path = require('path')
+const fs = require('fs')
 const bcrypt = require('bcryptjs')
 const { v4: uuidv4 } = require('uuid')
 const nodemailer = require('nodemailer')
 const db = require('../lib/db')
 const { authenticate, adminOnly } = require('../middleware/auth')
+
+const UPLOADS_DIR = path.join(__dirname, '../../../uploads')
+
+function deleteUserDir(userId) {
+  try {
+    const dir = path.join(UPLOADS_DIR, 'users', String(userId))
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true })
+  } catch (e) {
+    console.error('Error deleting user dir:', e.message)
+  }
+}
+
+async function deleteUserFiles(userId) {
+  try {
+    // Delete all flat-stored files belonging to the user's projects
+    const filesRes = await db.query(
+      'SELECT f.stored_name FROM files f JOIN projects p ON p.id=f.project_id WHERE p.user_id=$1',
+      [userId]
+    )
+    for (const f of filesRes.rows) {
+      const p = path.join(UPLOADS_DIR, f.stored_name)
+      if (fs.existsSync(p)) fs.unlink(p, () => {})
+    }
+    // Delete all generated files belonging to the user's projects
+    const genRes = await db.query(
+      'SELECT gf.stored_name FROM generated_files gf JOIN projects p ON p.id=gf.project_id WHERE p.user_id=$1',
+      [userId]
+    )
+    for (const f of genRes.rows) {
+      const p = path.join(UPLOADS_DIR, 'generated', f.stored_name)
+      if (fs.existsSync(p)) fs.unlink(p, () => {})
+    }
+  } catch (e) {
+    console.error('Error deleting user files:', e.message)
+  }
+}
 
 async function getMailer() {
   const result = await db.query('SELECT smtp_user, smtp_pass FROM email_settings WHERE id=1').catch(() => ({ rows: [] }))
@@ -151,7 +189,12 @@ router.delete('/users/:id', async (req, res) => {
     const check = await db.query('SELECT role FROM users WHERE id=$1', [req.params.id])
     if (!check.rows.length) return res.status(404).json({ error: 'User not found' })
     if (check.rows[0].role === 'admin') return res.status(400).json({ error: 'Cannot delete admin' })
-    await db.query('DELETE FROM users WHERE id=$1', [req.params.id])
+    const userId = parseInt(req.params.id)
+    // Clean up disk files before DB cascade-delete removes the records
+    await deleteUserFiles(userId)
+    await db.query('DELETE FROM users WHERE id=$1', [userId])
+    // Delete the user's entire uploads directory
+    deleteUserDir(userId)
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -255,7 +298,10 @@ router.delete('/account', async (req, res) => {
   try {
     const { confirmation } = req.body
     if (confirmation !== 'تأكيد' && confirmation !== 'confirm') return res.status(400).json({ error: 'Invalid confirmation' })
-    await db.query('DELETE FROM users WHERE id=$1', [req.user.id])
+    const userId = req.user.id
+    await deleteUserFiles(userId)
+    await db.query('DELETE FROM users WHERE id=$1', [userId])
+    deleteUserDir(userId)
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
