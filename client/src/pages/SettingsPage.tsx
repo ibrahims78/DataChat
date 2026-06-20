@@ -13,7 +13,8 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('stats')
   const [stats, setStats] = useState<any>(null)
   const [users, setUsers] = useState<any[]>([])
-  const [aiSettings, setAiSettings] = useState<any>({ system_prompt: '', temperature: 0.7, model: 'gemini-2.5-flash', api_key: '', provider: 'gemini' })
+  const [aiSettings, setAiSettings] = useState<any>({ system_prompt: '', temperature: 0.7, model: 'gemini-2.5-flash', api_key: '', provider: 'gemini', proxy_url: '' })
+  const [showWorkerCode, setShowWorkerCode] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
   const [apiKeyChanged, setApiKeyChanged] = useState(false)
   const [testingApi, setTestingApi] = useState(false)
@@ -433,11 +434,96 @@ export default function SettingsPage() {
               ))}
             </div>
             {aiSettings.provider === 'agentrouter' && (
-              <div className="mt-2 flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-lg px-3 py-2">
-                <span className="mt-0.5 shrink-0">⚠️</span>
-                <p className="text-xs text-amber-800 dark:text-amber-300">
-                  <strong>تحذير — عدم توافق مع Replit:</strong> خدمة AgentRouter تحجب جميع الطلبات القادمة من تطبيقات Replit (سواء من السيرفر أو المتصفح) عبر سياسة <code>content-blocked</code>. يُنصح باستخدام <strong>Gemini</strong> أو <strong>OpenAI</strong> بدلاً منها.
-                </p>
+              <div className="mt-3 space-y-3">
+                {/* Proxy URL input */}
+                <div className="border border-[var(--border)] rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🔗</span>
+                    <label className="text-sm font-semibold text-[var(--text)]">Cloudflare Worker Proxy URL</label>
+                    {aiSettings.proxy_url && (
+                      <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">مضبوط</span>
+                    )}
+                  </div>
+                  <input
+                    className="input-field font-mono text-sm"
+                    type="url"
+                    placeholder="https://agentrouter-proxy.your-name.workers.dev"
+                    value={aiSettings.proxy_url || ''}
+                    onChange={e => setAiSettings((p: any) => ({ ...p, proxy_url: e.target.value }))}
+                  />
+                  <p className="text-xs text-[var(--muted)]">
+                    {aiSettings.proxy_url
+                      ? '✅ الطلبات ستُرسل عبر السيرفر → Cloudflare Worker → agentrouter.org (يتجاوز حجب WAF)'
+                      : 'بدون proxy: الطلبات تُرسل من المتصفح مباشرةً (قد تكون محجوبة).'}
+                  </p>
+                  {/* Instructions */}
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 space-y-2">
+                    <p className="text-xs font-semibold text-blue-800 dark:text-blue-300">⚡ كيف تُعدّ Cloudflare Worker (مجاناً في 3 دقائق):</p>
+                    <ol className="text-xs text-blue-700 dark:text-blue-400 space-y-1 list-decimal list-inside">
+                      <li>سجّل في <a href="https://workers.cloudflare.com" target="_blank" rel="noopener noreferrer" className="underline">workers.cloudflare.com</a> (مجاناً)</li>
+                      <li>أنشئ Worker جديد → اضغط زر "كود Worker" أدناه → الصق الكود</li>
+                      <li>اضغط Deploy — ستحصل على رابط مثل: <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">agentrouter-proxy.xxx.workers.dev</code></li>
+                      <li>الصق الرابط في الحقل أعلاه ثم احفظ</li>
+                    </ol>
+                  </div>
+                  {/* Worker code toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setShowWorkerCode(v => !v)}
+                    className="btn-ghost text-sm flex items-center gap-1.5"
+                  >
+                    {showWorkerCode ? '▲ إخفاء كود Worker' : '▼ عرض كود Worker'}
+                  </button>
+                  {showWorkerCode && (
+                    <div className="relative">
+                      <pre className="bg-gray-900 text-green-400 text-xs rounded-lg p-4 overflow-auto max-h-64 whitespace-pre font-mono leading-relaxed">{`export default {
+  async fetch(request) {
+    const cors = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    }
+    if (request.method === 'OPTIONS')
+      return new Response(null, { status: 204, headers: cors })
+
+    const url = new URL(request.url)
+    const target = 'https://agentrouter.org' + url.pathname + url.search
+
+    const headers = new Headers()
+    for (const [k, v] of request.headers.entries()) {
+      if (['host','origin','referer','cf-connecting-ip',
+           'x-forwarded-for','cf-ray','cf-ipcountry'].includes(k.toLowerCase())) continue
+      headers.set(k, v)
+    }
+    headers.set('Origin', 'https://agentrouter.org')
+    headers.set('Referer', 'https://agentrouter.org/')
+    headers.set('Host', 'agentrouter.org')
+
+    const resp = await fetch(new Request(target, {
+      method: request.method,
+      headers,
+      body: request.method !== 'GET' ? request.body : undefined,
+    }))
+
+    const out = new Headers(resp.headers)
+    out.set('Access-Control-Allow-Origin', '*')
+    return new Response(resp.body, { status: resp.status, headers: out })
+  }
+}`}</pre>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const code = `export default {\n  async fetch(request) {\n    const cors = {\n      'Access-Control-Allow-Origin': '*',\n      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',\n      'Access-Control-Allow-Headers': 'Content-Type, Authorization',\n    }\n    if (request.method === 'OPTIONS')\n      return new Response(null, { status: 204, headers: cors })\n\n    const url = new URL(request.url)\n    const target = 'https://agentrouter.org' + url.pathname + url.search\n\n    const headers = new Headers()\n    for (const [k, v] of request.headers.entries()) {\n      if (['host','origin','referer','cf-connecting-ip',\n           'x-forwarded-for','cf-ray','cf-ipcountry'].includes(k.toLowerCase())) continue\n      headers.set(k, v)\n    }\n    headers.set('Origin', 'https://agentrouter.org')\n    headers.set('Referer', 'https://agentrouter.org/')\n    headers.set('Host', 'agentrouter.org')\n\n    const resp = await fetch(new Request(target, {\n      method: request.method,\n      headers,\n      body: request.method !== 'GET' ? request.body : undefined,\n    }))\n\n    const out = new Headers(resp.headers)\n    out.set('Access-Control-Allow-Origin', '*')\n    return new Response(resp.body, { status: resp.status, headers: out })\n  }\n}`
+                          navigator.clipboard.writeText(code)
+                          toast.success('تم نسخ كود Worker!')
+                        }}
+                        className="absolute top-2 end-2 text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded"
+                      >
+                        نسخ
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

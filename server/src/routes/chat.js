@@ -876,15 +876,31 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
     }
 
     if (provider === 'agentrouter') {
-      // Aliyun WAF blocks ALL Replit server IPs (confirmed via logs: HTML CAPTCHA page returned).
-      // Solution: delegate the API call to the user's browser which has their real IP.
-      // The browser makes the request directly to agentrouter.org and sends the full response
-      // back to /:projectId/submit-response for file generation and DB persistence.
       const apiKey = aiConfig.api_key || ''
+      const proxyUrl = (aiConfig.proxy_url || '').trim()
+
       if (!apiKey) {
         fullResponse = `عذراً، لم يتم ضبط مفتاح AgentRouter API. يرجى إضافته في الإعدادات.`
         res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
+      } else if (proxyUrl) {
+        // ── Server-side streaming via Cloudflare Worker proxy ──
+        // The Worker relays requests using Cloudflare IPs (not blocked by agentrouter WAF).
+        const endpoint = `${proxyUrl.replace(/\/$/, '')}/v1/chat/completions`
+        const chatMessages = [
+          { role: 'system', content: systemText },
+          ...msgs.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+          { role: 'user', content: message }
+        ]
+        console.log(`[AgentRouter] streaming via proxy: ${endpoint}`)
+        try {
+          await streamOpenAICompatible(endpoint, apiKey, selectedModel, chatMessages, parseFloat(aiConfig.temperature) || 0.7)
+        } catch (arErr) {
+          fullResponse = `❌ خطأ AgentRouter (Proxy): ${arErr.message}`
+          res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
+        }
       } else {
+        // ── Fallback: browser-direct (no proxy configured) ──
+        // Server IPs are WAF-blocked; delegate to the user's browser instead.
         const chatMessages = [
           { role: 'system', content: systemText },
           ...msgs.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
@@ -892,11 +908,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         ]
         res.write(`data: ${JSON.stringify({
           type: 'use_client_ar',
-          config: {
-            apiKey,
-            model: selectedModel,
-            temperature: parseFloat(aiConfig.temperature) || 0.7
-          },
+          config: { apiKey, model: selectedModel, temperature: parseFloat(aiConfig.temperature) || 0.7 },
           messages: chatMessages,
           conversationId
         })}\n\n`)

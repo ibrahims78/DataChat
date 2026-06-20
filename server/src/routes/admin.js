@@ -209,7 +209,8 @@ router.get('/settings', async (req, res) => {
       ...row,
       api_key: row.api_key ? '••••••••••••••••••••••••••••••••••••••' : '',
       has_api_key: !!row.api_key,
-      provider: row.provider || 'gemini'
+      provider: row.provider || 'gemini',
+      proxy_url: row.proxy_url || ''
     })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -218,16 +219,16 @@ router.get('/settings', async (req, res) => {
 
 router.patch('/settings', async (req, res) => {
   try {
-    const { system_prompt, temperature, model, api_key, provider } = req.body
+    const { system_prompt, temperature, model, api_key, provider, proxy_url } = req.body
     if (api_key !== undefined && api_key !== '••••••••••••••••••••••••••••••••••••••') {
       await db.query(
-        'UPDATE ai_settings SET system_prompt=$1, temperature=$2, model=$3, api_key=$4, provider=$5, updated_at=NOW() WHERE id=1',
-        [system_prompt, temperature, model, api_key || null, provider || 'gemini']
+        'UPDATE ai_settings SET system_prompt=$1, temperature=$2, model=$3, api_key=$4, provider=$5, proxy_url=$6, updated_at=NOW() WHERE id=1',
+        [system_prompt, temperature, model, api_key || null, provider || 'gemini', proxy_url || null]
       )
     } else {
       await db.query(
-        'UPDATE ai_settings SET system_prompt=$1, temperature=$2, model=$3, provider=$4, updated_at=NOW() WHERE id=1',
-        [system_prompt, temperature, model, provider || 'gemini']
+        'UPDATE ai_settings SET system_prompt=$1, temperature=$2, model=$3, provider=$4, proxy_url=$5, updated_at=NOW() WHERE id=1',
+        [system_prompt, temperature, model, provider || 'gemini', proxy_url || null]
       )
     }
     res.json({ success: true })
@@ -263,20 +264,24 @@ router.post('/settings/test-api', async (req, res) => {
     }
 
     if (provider === 'agentrouter') {
-      const { model: modelToTest } = req.body
+      const { model: modelToTest, proxy_url: proxyUrlParam } = req.body
       const arModel = modelToTest || 'deepseek/deepseek-chat-v3-0324'
-      console.log(`[AgentRouter Test] key=${keyToTest.substring(0,8)}... model=${arModel}`)
+      // Use stored proxy_url if not passed in body
+      let proxyUrl = proxyUrlParam
+      if (!proxyUrl) {
+        const cfgRow = await db.query('SELECT proxy_url FROM ai_settings WHERE id=1')
+        proxyUrl = cfgRow.rows[0]?.proxy_url || ''
+      }
+      const endpoint = proxyUrl
+        ? `${proxyUrl.replace(/\/$/, '')}/v1/chat/completions`
+        : 'https://agentrouter.org/v1/chat/completions'
+      console.log(`[AgentRouter Test] key=${keyToTest.substring(0,8)}... model=${arModel} proxy=${proxyUrl || 'none'}`)
       try {
-        const arRes = await fetch('https://agentrouter.org/v1/chat/completions', {
+        const arRes = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${keyToTest}`,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Referer': 'https://agentrouter.org/',
-            'Origin': 'https://agentrouter.org',
           },
           body: JSON.stringify({
             model: arModel,
@@ -288,24 +293,29 @@ router.post('/settings/test-api', async (req, res) => {
         const arText = await arRes.text()
         const arContentType = arRes.headers.get('content-type') || ''
         console.log(`[AgentRouter Test] status=${arRes.status} body=${arText.substring(0,300)}`)
-        // WAF returns 200 + HTML challenge page — detect and reject
         if (arContentType.includes('text/html') || arText.trimStart().startsWith('<')) {
-          return res.status(400).json({ error: 'الخادم محجوب من WAF (Aliyun) — agentrouter.org يحجب طلبات السيرفر. يرجى استخدام مزود آخر كـ Gemini.' })
+          return res.status(400).json({ error: proxyUrl
+            ? 'الـ Proxy يُعيد HTML من WAF — تأكد من نشر Worker بشكل صحيح.'
+            : 'الخادم محجوب من WAF — ضع رابط Cloudflare Worker في حقل Proxy URL أدناه.'
+          })
         }
         if (arRes.ok) {
-          return res.json({ success: true, message: 'مفتاح AgentRouter API صحيح ويعمل بشكل جيد ✓' })
+          return res.json({ success: true, message: proxyUrl
+            ? '✅ مفتاح AgentRouter يعمل عبر الـ Proxy بشكل صحيح'
+            : '✅ مفتاح AgentRouter صحيح'
+          })
         }
         let arMsg = ''
         try { arMsg = JSON.parse(arText)?.error?.message || JSON.parse(arText)?.message || '' } catch {}
         const detail = arMsg ? `: ${arMsg}` : `: ${arText.substring(0, 200)}`
         if (arRes.status === 401) return res.status(400).json({ error: `مفتاح AgentRouter غير صحيح أو منتهي الصلاحية${detail}` })
-        if (arRes.status === 403) return res.status(400).json({ error: `الوصول محجوب (WAF) - جرب الاختبار من التطبيق المنشور مباشرةً${detail}` })
+        if (arRes.status === 403) return res.status(400).json({ error: `الوصول محجوب${detail}` })
         if (arRes.status === 404) return res.status(400).json({ error: `النموذج "${arModel}" غير موجود${detail}` })
         if (arRes.status === 429) return res.status(400).json({ error: `تم استنفاد الحصة (Rate limit)${detail}` })
         return res.status(400).json({ error: `فشل التحقق (${arRes.status})${detail}` })
       } catch (arErr) {
         console.error('[AgentRouter Test] fetch error:', arErr.message)
-        return res.status(400).json({ error: `فشل الاتصال بـ agentrouter.org: ${arErr.message}` })
+        return res.status(400).json({ error: `فشل الاتصال: ${arErr.message}` })
       }
     }
 
