@@ -836,10 +836,8 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`,
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept': 'application/json, text/event-stream',
-          'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Connection': 'keep-alive',
+          'Accept': 'text/event-stream',
+          'Accept-Language': 'en-US,en;q=0.9',
         },
         body: JSON.stringify({ model, messages: chatMessages, temperature, stream: true })
       })
@@ -976,6 +974,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
                 'Accept': 'application/json',
                 'Accept-Language': 'en-US,en;q=0.9',
               },
+
               body: JSON.stringify({ model: selectedModel, messages: [{ role: 'system', content: systemText }, { role: 'user', content: fallbackPrompt }], temperature: 0.3, max_tokens: 4096 })
             })
             if (oaFbRes.ok) { const d = await oaFbRes.json(); fallbackText = d.choices?.[0]?.message?.content || '' }
