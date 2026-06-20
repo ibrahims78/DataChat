@@ -115,6 +115,15 @@ ALTER TABLE generated_files ADD COLUMN IF NOT EXISTS display_name VARCHAR(500);
 
 INSERT INTO ai_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
 
+-- Email settings
+CREATE TABLE IF NOT EXISTS email_settings (
+  id SERIAL PRIMARY KEY,
+  smtp_user VARCHAR(255) DEFAULT NULL,
+  smtp_pass TEXT DEFAULT NULL,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+INSERT INTO email_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
 CREATE INDEX IF NOT EXISTS idx_files_project_id ON files(project_id);

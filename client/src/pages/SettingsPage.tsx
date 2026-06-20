@@ -7,7 +7,7 @@ import api from '../lib/api'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../components/ui/ConfirmModal'
 
-type Tab = 'stats' | 'users' | 'ai' | 'profile' | 'ratings'
+type Tab = 'stats' | 'users' | 'ai' | 'email' | 'profile' | 'ratings'
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('stats')
@@ -18,6 +18,11 @@ export default function SettingsPage() {
   const [apiKeyChanged, setApiKeyChanged] = useState(false)
   const [testingApi, setTestingApi] = useState(false)
   const [apiTestResult, setApiTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [emailSettings, setEmailSettings] = useState({ smtp_user: '', smtp_pass: '', has_smtp: false })
+  const [showSmtpPass, setShowSmtpPass] = useState(false)
+  const [smtpPassChanged, setSmtpPassChanged] = useState(false)
+  const [testingEmail, setTestingEmail] = useState(false)
+  const [emailTestResult, setEmailTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [ratings, setRatings] = useState<any[]>([])
   const [deleteUserTarget, setDeleteUserTarget] = useState<any>(null)
   const [showAddUser, setShowAddUser] = useState(false)
@@ -41,8 +46,29 @@ export default function SettingsPage() {
       if (tab === 'stats') { const r = await api.get('/admin/stats'); setStats(r.data) }
       if (tab === 'users') { const r = await api.get('/admin/users'); setUsers(r.data) }
       if (tab === 'ai') { const r = await api.get('/admin/settings'); setAiSettings(r.data) }
+      if (tab === 'email') { const r = await api.get('/admin/email-settings'); setEmailSettings(r.data); setSmtpPassChanged(false) }
       if (tab === 'ratings') { const r = await api.get('/admin/ratings'); setRatings(r.data) }
     } catch {}
+  }
+
+  const saveEmail = async () => {
+    try {
+      await api.patch('/admin/email-settings', emailSettings)
+      setSmtpPassChanged(false)
+      toast.success('تم حفظ إعدادات البريد')
+      fetchData()
+    } catch { toast.error('فشل الحفظ') }
+  }
+
+  const testEmail = async () => {
+    setTestingEmail(true)
+    setEmailTestResult(null)
+    try {
+      const r = await api.post('/admin/email-settings/test', emailSettings)
+      setEmailTestResult({ ok: true, msg: r.data.message })
+    } catch (err: any) {
+      setEmailTestResult({ ok: false, msg: err.response?.data?.error || 'فشل الاتصال' })
+    } finally { setTestingEmail(false) }
   }
 
   const deleteUser = async () => {
@@ -108,6 +134,7 @@ export default function SettingsPage() {
     { id: 'stats', icon: BarChart3, label: tr('statistics') },
     { id: 'users', icon: Users, label: tr('users') },
     { id: 'ai', icon: Settings, label: tr('aiSettings') },
+    { id: 'email', icon: Mail, label: 'البريد' },
     { id: 'profile', icon: User, label: tr('profile') },
     { id: 'ratings', icon: Star, label: 'التقييمات' },
   ]
@@ -318,6 +345,97 @@ export default function SettingsPage() {
             </div>
           </div>
           <button onClick={saveAI} className="btn-primary">{tr('save')}</button>
+        </div>
+      )}
+
+      {tab === 'email' && (
+        <div className="card p-6 space-y-5 max-w-lg">
+          <div>
+            <h2 className="font-semibold text-[var(--text)] flex items-center gap-2">
+              <Mail size={18} className="text-primary-600" />
+              إعدادات البريد الإلكتروني (Gmail)
+            </h2>
+            <p className="text-xs text-[var(--muted)] mt-1">
+              تُستخدم هذه البيانات لإرسال دعوات الانضمام تلقائياً عبر بريدك.
+            </p>
+          </div>
+
+          {/* SMTP User */}
+          <div>
+            <label className="block text-sm font-semibold text-[var(--text)] mb-2">
+              عنوان Gmail <span className="text-red-500">*</span>
+            </label>
+            <input
+              className="input-field"
+              type="email"
+              placeholder="yourapp@gmail.com"
+              value={emailSettings.smtp_user}
+              onChange={e => { setEmailSettings(p => ({ ...p, smtp_user: e.target.value })); setEmailTestResult(null) }}
+            />
+          </div>
+
+          {/* SMTP Pass */}
+          <div>
+            <label className="block text-sm font-semibold text-[var(--text)] mb-2 flex items-center gap-2">
+              كلمة مرور التطبيق (App Password)
+              {emailSettings.has_smtp && !smtpPassChanged && (
+                <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full font-normal">محفوظة</span>
+              )}
+            </label>
+            <div className="relative">
+              <input
+                className="input-field pe-10 font-mono text-sm"
+                type={showSmtpPass ? 'text' : 'password'}
+                placeholder="xxxx xxxx xxxx xxxx"
+                value={emailSettings.smtp_pass}
+                onChange={e => { setEmailSettings(p => ({ ...p, smtp_pass: e.target.value })); setSmtpPassChanged(true); setEmailTestResult(null) }}
+              />
+              <button type="button" onClick={() => setShowSmtpPass(!showSmtpPass)}
+                className="absolute end-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)] transition-colors">
+                {showSmtpPass ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Help box */}
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-2">
+            <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">🔑 كيف تحصل على App Password؟</p>
+            <ol className="text-xs text-blue-600 dark:text-blue-400 space-y-1 list-decimal list-inside">
+              <li>افتح <a href="https://myaccount.google.com/security" target="_blank" rel="noopener noreferrer" className="underline font-medium">إعدادات أمان Google</a></li>
+              <li>فعّل التحقق بخطوتين (إذا لم يكن مفعّلاً)</li>
+              <li>ابحث عن <strong>"كلمات مرور التطبيقات"</strong> واضغط عليها</li>
+              <li>اختر "بريد" ثم "Windows Computer" وانسخ الكلمة المولّدة</li>
+            </ol>
+            <p className="text-xs text-blue-500 dark:text-blue-500">⚠️ لا تستخدم كلمة مرور Gmail العادية — لن تعمل.</p>
+          </div>
+
+          {/* Test result */}
+          {emailTestResult && (
+            <div className={`flex items-center gap-2 text-sm font-medium px-4 py-3 rounded-xl border ${
+              emailTestResult.ok
+                ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-400'
+                : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
+            }`}>
+              {emailTestResult.ok ? <CheckCircle size={16} /> : <XCircle size={16} />}
+              {emailTestResult.msg}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex items-center gap-3 pt-1">
+            <button onClick={saveEmail} className="btn-primary">
+              حفظ الإعدادات
+            </button>
+            <button
+              onClick={testEmail}
+              disabled={testingEmail || !emailSettings.smtp_user}
+              className="btn-ghost text-sm flex items-center gap-2 disabled:opacity-50"
+            >
+              {testingEmail
+                ? <><Loader2 size={14} className="animate-spin" /> جاري الاختبار...</>
+                : <><CheckCircle size={14} /> اختبار الاتصال</>}
+            </button>
+          </div>
         </div>
       )}
 

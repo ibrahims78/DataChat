@@ -5,10 +5,14 @@ const nodemailer = require('nodemailer')
 const db = require('../lib/db')
 const { authenticate, adminOnly } = require('../middleware/auth')
 
-const mailer = nodemailer.createTransport({
-  service: 'gmail',
-  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-})
+async function getMailer() {
+  const result = await db.query('SELECT smtp_user, smtp_pass FROM email_settings WHERE id=1').catch(() => ({ rows: [] }))
+  const row = result.rows[0] || {}
+  const user = row.smtp_user || process.env.SMTP_USER
+  const pass = row.smtp_pass || process.env.SMTP_PASS
+  if (!user || !pass) return null
+  return nodemailer.createTransport({ service: 'gmail', auth: { user, pass } })
+}
 
 const router = express.Router()
 router.use(authenticate, adminOnly)
@@ -69,7 +73,8 @@ router.post('/users/invite', async (req, res) => {
       : `http://localhost:${process.env.PORT || 3001}`
     const inviteLink = `${origin}/register?token=${token}`
 
-    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+    const mailer = await getMailer()
+    if (mailer) {
       await mailer.sendMail({
         from: `"DataChat" <${process.env.SMTP_USER}>`,
         to: email,
@@ -218,6 +223,63 @@ router.delete('/account', async (req, res) => {
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: err.message })
+  }
+})
+
+// Email settings routes
+router.get('/email-settings', async (req, res) => {
+  try {
+    const result = await db.query('SELECT smtp_user, smtp_pass FROM email_settings WHERE id=1')
+    const row = result.rows[0] || {}
+    res.json({
+      smtp_user: row.smtp_user || process.env.SMTP_USER || '',
+      smtp_pass: row.smtp_pass ? '••••••••••••••••' : (process.env.SMTP_PASS ? '••••••••••••••••' : ''),
+      has_smtp: !!(row.smtp_user || process.env.SMTP_USER)
+    })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.patch('/email-settings', async (req, res) => {
+  try {
+    const { smtp_user, smtp_pass } = req.body
+    const MASK = '••••••••••••••••'
+    if (smtp_pass && smtp_pass !== MASK) {
+      await db.query('UPDATE email_settings SET smtp_user=$1, smtp_pass=$2, updated_at=NOW() WHERE id=1', [smtp_user, smtp_pass])
+    } else {
+      await db.query('UPDATE email_settings SET smtp_user=$1, updated_at=NOW() WHERE id=1', [smtp_user])
+    }
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+router.post('/email-settings/test', async (req, res) => {
+  try {
+    const { smtp_user, smtp_pass } = req.body
+    const MASK = '••••••••••••••••'
+    let user = smtp_user
+    let pass = smtp_pass
+    if (!pass || pass === MASK) {
+      const row = await db.query('SELECT smtp_user, smtp_pass FROM email_settings WHERE id=1')
+      user = row.rows[0]?.smtp_user || process.env.SMTP_USER
+      pass = row.rows[0]?.smtp_pass || process.env.SMTP_PASS
+    }
+    if (!user || !pass) return res.status(400).json({ error: 'يرجى إدخال بيانات Gmail أولاً' })
+    const transport = nodemailer.createTransport({ service: 'gmail', auth: { user, pass } })
+    await transport.verify()
+    res.json({ success: true, message: 'الاتصال بـ Gmail يعمل بشكل صحيح ✓' })
+  } catch (err) {
+    const msg = err.message || ''
+    if (msg.includes('Invalid login') || msg.includes('Username and Password') || msg.includes('credentials')) {
+      res.status(400).json({ error: 'بيانات الدخول غير صحيحة — تأكد من استخدام App Password' })
+    } else if (msg.includes('ENOTFOUND') || msg.includes('network')) {
+      res.status(400).json({ error: 'تعذّر الاتصال بـ Gmail — تحقق من الاتصال بالإنترنت' })
+    } else {
+      res.status(400).json({ error: 'فشل الاتصال: ' + msg })
+    }
   }
 })
 
