@@ -29,7 +29,7 @@ export default function AvatarMenu() {
       </button>
 
       {open && (
-        <div className={`absolute ${lang === 'ar' ? 'left-0' : 'right-0'} bottom-12 w-56 bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-lg py-2 z-50 animate-fade-in`}>
+        <div className={`absolute ${lang === 'ar' ? 'right-0' : 'left-0'} bottom-12 w-56 bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-lg py-2 z-50 animate-fade-in`}>
           <div className="px-4 py-2 border-b border-[var(--border)]">
             <p className="font-semibold text-sm text-[var(--text)]">{user?.name}</p>
             <p className="text-xs text-[var(--muted)]">{user?.email}</p>
