@@ -29,6 +29,8 @@ export default function ProjectPage() {
   const [typingStep, setTypingStep] = useState('')
   const [showUpload, setShowUpload] = useState(false)
   const [streamBuffer, setStreamBuffer] = useState('')
+  const [messagePreviews, setMessagePreviews] = useState<Record<number, { fileUrl: string; page: number; filename: string }>>({})
+  const tempAiIdRef = useRef<number>(0)
 
   const fetchProject = async () => {
     try {
@@ -91,6 +93,7 @@ export default function ProjectPage() {
     }, 2000)
 
     const aiMsg = { id: Date.now() + 1, role: 'assistant', content: '', created_at: new Date().toISOString() }
+    tempAiIdRef.current = aiMsg.id
     setMessages(prev => [...prev, aiMsg])
 
     try {
@@ -125,26 +128,38 @@ export default function ProjectPage() {
             if (data.type === 'text') {
               fullText += data.content
               // Strip ALL file command tags (complete and partial) from displayed text in real-time
-              const FILE_TAGS = ['EXCEL_FILE', 'PDF_FILE', 'HTML_FILE', 'MD_FILE', 'TXT_FILE', 'JSON_FILE']
+              const FILE_TAGS = ['EXCEL_FILE', 'PDF_FILE', 'HTML_FILE', 'MD_FILE', 'TXT_FILE', 'JSON_FILE', 'WORD_FILE', 'EXTRACT_PAGE', 'SHOW_PAGE']
               let displayText = fullText
               for (const tag of FILE_TAGS) {
-                // Remove complete tags
                 displayText = displayText.replace(new RegExp(`\\[${tag}\\][\\s\\S]*?\\[\\/${tag}\\]`, 'g'), '')
-                // Remove partial/incomplete tags still streaming
                 displayText = displayText.replace(new RegExp(`\\[${tag}\\][\\s\\S]*$`, 'g'), '')
               }
               displayText = displayText.trim()
               setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: displayText } : m))
             } else if (data.type === 'update_content') {
               fullText = data.content
-              setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: fullText } : m))
+              // Strip the PAGE_PREVIEW marker from displayed text (it's only for DB storage)
+              const displayContent = data.content.replace(/\n@@PAGE_PREVIEW@@[\s\S]*?@@END_PREVIEW@@/g, '').trim()
+              setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: displayContent } : m))
+            } else if (data.type === 'page_preview') {
+              const tempId = tempAiIdRef.current
+              setMessagePreviews(prev => ({ ...prev, [tempId]: { fileUrl: data.fileUrl, page: data.page, filename: data.filename } }))
             } else if (data.type === 'done') {
               if (data.generatedFile) {
                 setProject(p => p ? { ...p, generated_files: [...p.generated_files, data.generatedFile] } : p)
                 toast.success('✅ الملف جاهز للتحميل — راجع قسم "النتائج المُولَّدة" في لوحة الملفات', { duration: 5000 })
               }
               if (data.messageId) {
-                setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, id: data.messageId } : m))
+                const tempId = tempAiIdRef.current
+                setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: data.messageId } : m))
+                // Move preview from temp ID to real message ID
+                setMessagePreviews(prev => {
+                  if (prev[tempId]) {
+                    const { [tempId]: preview, ...rest } = prev
+                    return { ...rest, [data.messageId]: preview }
+                  }
+                  return prev
+                })
               }
             }
           } catch {}
@@ -243,6 +258,7 @@ export default function ProjectPage() {
             projectId={parseInt(id!)}
             onMessageUpdated={fetchProject}
             hasFiles={project.files.length > 0}
+            messagePreviews={messagePreviews}
           />
           <ChatInput
             onSend={sendMessage}

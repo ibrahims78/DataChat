@@ -561,7 +561,7 @@ router.post('/:projectId/message', async (req, res) => {
     // File generation protocol — placed FIRST so it takes highest priority
     const FILE_GEN_PROTOCOL = `## [تعليمات النظام — إلزامية — إنشاء الملفات]
 
-أنت مساعد ذكاء اصطناعي داخل منصة DataChat. المنصة تدعم إنشاء ملفات Excel وPDF وHTML وWord حقيقية قابلة للتحميل.
+أنت مساعد ذكاء اصطناعي داخل منصة DataChat. المنصة تدعم إنشاء ملفات Excel وPDF وHTML وWord حقيقية قابلة للتحميل، وعرض أي صفحة من الملفات المرفوعة مباشرةً في الدردشة.
 
 ### القاعدة الأساسية — MUST FOLLOW:
 في كل مرة يطلب فيها المستخدم ملف Excel أو PDF أو HTML أو Word أو تقريراً أو بيانات للتنزيل:
@@ -620,6 +620,9 @@ router.post('/:projectId/message', async (req, res) => {
 12. عند طلب اقتطاع/استخراج صفحة أو صفحات من ملف PDF موجود (مع الحفاظ على التنسيق الأصلي)، استخدم:
 [EXTRACT_PAGE]{"filename":"اسم_الملف_الأصلي.pdf","pages":[5],"output":"اسم_الملف_الجديد"}[/EXTRACT_PAGE]
 حيث pages هي قائمة أرقام الصفحات (تبدأ من 1). يمكن تحديد أكثر من صفحة مثل [3,4,5]. لا تستخدم [PDF_FILE] لهذا الغرض — [EXTRACT_PAGE] هو الوحيد الذي يحافظ على التنسيق الأصلي.
+13. عندما يطلب المستخدم رؤية/عرض صفحة من ملف PDF مباشرةً في الدردشة (مثل "أرني الصفحة 5"، "اعرض لي الصفحة")، استخدم:
+[SHOW_PAGE]{"filename":"اسم_الملف.pdf","page":5}[/SHOW_PAGE]
+سيتم عرض الصفحة كصورة مباشرةً في الدردشة. لا تقل "لا أستطيع عرض الصور" — استخدم هذا الوسم فوراً.
 
 ---
 
@@ -667,12 +670,13 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
     let jsonMatch = fullResponse.match(/\[JSON_FILE\]([\s\S]*?)\[\/JSON_FILE\]/)
     let wordMatch = fullResponse.match(/\[WORD_FILE\]([\s\S]*?)\[\/WORD_FILE\]/)
     let extractMatch = fullResponse.match(/\[EXTRACT_PAGE\]([\s\S]*?)\[\/EXTRACT_PAGE\]/)
+    let showPageMatch = fullResponse.match(/\[SHOW_PAGE\]([\s\S]*?)\[\/SHOW_PAGE\]/)
 
     // --- Fallback: if user asked for a file but AI didn't generate a tag, make a second focused call ---
     const fileKeywords = /ملف\s*(excel|اكسل|xlsx|إكسل|pdf|بي دي اف|تقرير|word|html|ويب|md|markdown|txt|نصي|json)|أنشئ\s*ملف|اعطني\s*ملف|عطني\s*ملف|صدّر|صدر\s*البيانات|تحميل\s*ملف|download.*file|create.*file|generate.*file|export/i
     const userWantsFile = fileKeywords.test(message)
 
-    if (userWantsFile && !excelMatch && !pdfMatch && !htmlMatch && !mdMatch && !txtMatch && !jsonMatch && !wordMatch && !extractMatch) {
+    if (userWantsFile && !excelMatch && !pdfMatch && !htmlMatch && !mdMatch && !txtMatch && !jsonMatch && !wordMatch && !extractMatch && !showPageMatch) {
       console.log('[FALLBACK] User requested file but AI did not generate tag. Triggering fallback call.')
       try {
         const isHTML = /html|ويب|صفحة\s*ويب/i.test(message)
@@ -741,9 +745,38 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       .replace(/\[JSON_FILE\][\s\S]*?\[\/JSON_FILE\]/g, '')
       .replace(/\[WORD_FILE\][\s\S]*?\[\/WORD_FILE\]/g, '')
       .replace(/\[EXTRACT_PAGE\][\s\S]*?\[\/EXTRACT_PAGE\]/g, '')
+      .replace(/\[SHOW_PAGE\][\s\S]*?\[\/SHOW_PAGE\]/g, '')
       .trim()
 
     // If AI sent only a file tag with no text, add a default confirmation message
+    // Handle SHOW_PAGE before saving message — embed preview marker into content
+    let pagePreviewData = null
+    if (showPageMatch) {
+      try {
+        const spData = repairJSON(showPageMatch[1].trim())
+        const spFilename = spData.filename || ''
+        const spPage = parseInt(spData.page) || 1
+        const spFileRow = await db.query(
+          `SELECT * FROM files WHERE project_id=$1 AND (original_name ILIKE $2 OR original_name ILIKE $3) ORDER BY created_at DESC LIMIT 1`,
+          [req.params.projectId, `%${spFilename}%`, `%${path.basename(spFilename, path.extname(spFilename))}%`]
+        )
+        if (spFileRow.rows.length) {
+          const spFile = spFileRow.rows[0]
+          const fileUrl = `/uploads/${spFile.stored_name}`
+          pagePreviewData = { fileUrl, page: spPage, filename: spFile.original_name }
+          // Embed marker in cleanResponse so it persists in DB
+          const marker = `\n@@PAGE_PREVIEW@@${JSON.stringify(pagePreviewData)}@@END_PREVIEW@@`
+          cleanResponse = (cleanResponse || 'إليك الصفحة المطلوبة:') + marker
+          // Notify client immediately for streaming display
+          res.write(`data: ${JSON.stringify({ type: 'page_preview', ...pagePreviewData })}\n\n`)
+          console.log(`[SHOW_PAGE] Serving page ${spPage} of "${spFile.original_name}"`)
+        } else {
+          console.warn('[SHOW_PAGE] File not found:', spFilename)
+          cleanResponse = (cleanResponse || '') + `\nلم يتم العثور على الملف: ${spFilename}`
+        }
+      } catch (e) { console.error('SHOW_PAGE error:', e.message) }
+    }
+
     const hadFileTag = excelMatch || pdfMatch || htmlMatch || mdMatch || txtMatch || jsonMatch || wordMatch || extractMatch
     if (hadFileTag && !cleanResponse) {
       const fileType = excelMatch ? 'Excel' : pdfMatch ? 'PDF' : htmlMatch ? 'HTML' : mdMatch ? 'Markdown' : jsonMatch ? 'JSON' : wordMatch ? 'Word' : extractMatch ? 'PDF (مقتطع)' : 'نصي'

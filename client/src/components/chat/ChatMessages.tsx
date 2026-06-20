@@ -8,8 +8,10 @@ import { format } from 'date-fns'
 import { ar } from 'date-fns/locale'
 import api from '../../lib/api'
 import toast from 'react-hot-toast'
+import PdfPageViewer from './PdfPageViewer'
 
 interface Message { id: number; role: string; content: string; created_at: string; rating?: number }
+interface PagePreview { fileUrl: string; page: number; filename: string }
 
 interface Props {
   messages: Message[]
@@ -18,9 +20,22 @@ interface Props {
   projectId: number
   onMessageUpdated: () => void
   hasFiles: boolean
+  messagePreviews?: Record<number, PagePreview>
 }
 
-export default function ChatMessages({ messages, isTyping, typingStep, projectId, onMessageUpdated, hasFiles }: Props) {
+function parsePagePreview(content: string): { preview: PagePreview | null; cleanContent: string } {
+  const match = content.match(/\n@@PAGE_PREVIEW@@([\s\S]*?)@@END_PREVIEW@@/)
+  if (!match) return { preview: null, cleanContent: content }
+  try {
+    const preview = JSON.parse(match[1])
+    const cleanContent = content.replace(/\n@@PAGE_PREVIEW@@[\s\S]*?@@END_PREVIEW@@/g, '').trim()
+    return { preview, cleanContent }
+  } catch {
+    return { preview: null, cleanContent: content }
+  }
+}
+
+export default function ChatMessages({ messages, isTyping, typingStep, projectId, onMessageUpdated, hasFiles, messagePreviews = {} }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const { lang } = useTheme()
   const tr = useT(lang)
@@ -131,14 +146,29 @@ export default function ChatMessages({ messages, isTyping, typingStep, projectId
                   <Bot size={16} className="text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
+                  {(() => {
+                    const sessionPreview = messagePreviews[msg.id]
+                    const { preview: storedPreview, cleanContent } = parsePagePreview(msg.content)
+                    const preview = sessionPreview || storedPreview
+                    const displayContent = sessionPreview ? msg.content : cleanContent
+                    return (
                   <div className="chat-bubble-ai">
                     <div className="prose prose-sm max-w-none dark:prose-invert text-[var(--text)] text-sm">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent}</ReactMarkdown>
                     </div>
+                    {preview && (
+                      <PdfPageViewer
+                        fileUrl={preview.fileUrl}
+                        page={preview.page}
+                        filename={preview.filename}
+                      />
+                    )}
                     <p className="text-xs text-[var(--muted)] mt-2">
                       {format(new Date(msg.created_at), 'HH:mm')}
                     </p>
                   </div>
+                    )
+                  })()}
 
                   <div className="flex items-center gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => copyText(msg.id, msg.content)}
