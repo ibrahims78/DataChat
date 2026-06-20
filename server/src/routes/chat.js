@@ -105,20 +105,60 @@ async function extractFileContent(file) {
     if (file.file_type === 'excel') {
       const wb = XLSX.readFile(filePath)
       let content = `[ملف Excel: ${file.original_name}]\n`
+      const CHAR_BUDGET = 200000
       wb.SheetNames.forEach(name => {
         const ws = wb.Sheets[name]
         const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
-        content += `\nورقة العمل: ${name}\n`
-        content += data.slice(0, 200).map(row => row.join('\t')).join('\n')
-        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
-        content += `\n[إجمالي: ${range.e.r} صف × ${range.e.c + 1} عمود]`
+        if (data.length === 0) return
+        const headers = data[0]
+        const rows = data.slice(1)
+        const totalRows = rows.length
+        const totalCols = headers.length
+        // Count empty cells per column for quality summary
+        const emptyCounts = headers.map((_, ci) => rows.filter(r => r[ci] === '' || r[ci] == null).length)
+        const summaryLines = headers.map((h, ci) => `  - ${h}: ${emptyCounts[ci]} فارغ من ${totalRows}`)
+        const summary = `ورقة العمل: ${name}\nالإجمالي: ${totalRows} صف × ${totalCols} عمود\nجودة البيانات (القيم الفارغة):\n${summaryLines.join('\n')}\n\nالبيانات الكاملة (CSV):\n`
+        // Build compact CSV: quote only cells that contain comma or newline
+        const csvHeader = headers.map(h => String(h).includes(',') ? `"${h}"` : String(h)).join(',')
+        let csvRows = rows.map(row =>
+          headers.map((_, ci) => {
+            const val = String(row[ci] ?? '')
+            return val.includes(',') || val.includes('\n') ? `"${val.replace(/"/g, '""')}"` : val
+          }).join(',')
+        ).join('\n')
+        // Apply char budget across all sheets
+        const used = content.length + summary.length + csvHeader.length + 1
+        const remaining = CHAR_BUDGET - used
+        if (remaining <= 0) {
+          content += `\nورقة العمل: ${name} — تجاوز الحد، البيانات محذوفة (${totalRows} صف)\n`
+          return
+        }
+        if (csvRows.length > remaining) {
+          const cut = csvRows.lastIndexOf('\n', remaining)
+          const keptLines = (csvRows.substring(0, cut).match(/\n/g) || []).length + 1
+          csvRows = csvRows.substring(0, cut) + `\n[تحذير: عُرض ${keptLines} صف من أصل ${totalRows} بسبب حجم البيانات — يُنصح بتقسيم الملف]`
+        }
+        content += summary + csvHeader + '\n' + csvRows + '\n'
       })
       return content
     }
     if (file.file_type === 'csv') {
       const raw = fs.readFileSync(filePath, 'utf8')
       const records = parse(raw, { skip_empty_lines: true })
-      return `[ملف CSV: ${file.original_name}]\n${records.slice(0, 200).map(r => r.join('\t')).join('\n')}\n[إجمالي: ${records.length} صف]`
+      const headers = records[0] || []
+      const rows = records.slice(1)
+      const totalRows = rows.length
+      const emptyCounts = headers.map((_, ci) => rows.filter(r => r[ci] === '' || r[ci] == null).length)
+      const summaryLines = headers.map((h, ci) => `  - ${h}: ${emptyCounts[ci]} فارغ من ${totalRows}`)
+      const summary = `[ملف CSV: ${file.original_name}]\nالإجمالي: ${totalRows} صف × ${headers.length} عمود\nجودة البيانات:\n${summaryLines.join('\n')}\n\nالبيانات الكاملة:\n`
+      const CHAR_BUDGET = 200000
+      let csvRows = records.map(r => r.map(v => String(v).includes(',') ? `"${String(v).replace(/"/g, '""')}"` : String(v)).join(',')).join('\n')
+      if (summary.length + csvRows.length > CHAR_BUDGET) {
+        const cut = csvRows.lastIndexOf('\n', CHAR_BUDGET - summary.length)
+        const keptLines = (csvRows.substring(0, cut).match(/\n/g) || []).length
+        csvRows = csvRows.substring(0, cut) + `\n[تحذير: عُرض ${keptLines} صف من أصل ${totalRows} بسبب حجم البيانات]`
+      }
+      return summary + csvRows
     }
     if (file.file_type === 'pdf') {
       const buf = fs.readFileSync(filePath)
