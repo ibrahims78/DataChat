@@ -59,6 +59,14 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
       'text/markdown': ['.md'],
       'text/plain': ['.txt'],
       'application/json': ['.json'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+      'image/gif': ['.gif'],
+      'image/webp': ['.webp'],
+      'image/bmp': ['.bmp'],
+      'image/tiff': ['.tiff', '.tif'],
+      'image/heic': ['.heic'],
+      'image/heif': ['.heif'],
     }
   })
 

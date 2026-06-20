@@ -239,6 +239,40 @@ async function extractFileContent(file) {
         return header + raw.substring(0, CHAR_BUDGET - header.length)
       }
     }
+    if (file.file_type === 'image') {
+      try {
+        const ext = path.extname(file.original_name).toLowerCase()
+        const mimeMap = {
+          '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+          '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+          '.tiff': 'image/tiff', '.tif': 'image/tiff', '.heic': 'image/heic', '.heif': 'image/heif'
+        }
+        const mimeType = mimeMap[ext] || 'image/jpeg'
+        const imageData = fs.readFileSync(filePath).toString('base64')
+        const genAI = getGenAI()
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+        const result = await model.generateContent([
+          {
+            inlineData: { data: imageData, mimeType }
+          },
+          `أنت نظام OCR متقدم. استخرج كل النصوص الموجودة في هذه الصورة بدقة تامة.
+اشمل:
+- النصوص المطبوعة
+- الخط اليدوي (حتى لو كان غير واضح، حاول قراءته)
+- الأرقام والرموز
+- العناوين والتسميات
+- أي نص ظاهر في الصورة
+
+قدّم النص المستخرج كما هو دون تعليق إضافي. إذا كانت الصورة تحتوي على جداول أو هياكل، حاول الحفاظ على تنسيقها.`
+        ])
+        const extractedText = result.response.text() || ''
+        const wordCount = extractedText.trim().split(/\s+/).filter(Boolean).length
+        const header = `[ملف صورة: ${file.original_name}]\nعدد الكلمات المستخرجة تقريباً: ${wordCount}\n\nالنص المستخرج من الصورة:\n`
+        return header + extractedText
+      } catch (imgErr) {
+        return `[ملف صورة: ${file.original_name}]\n[تعذّر استخراج النص: ${imgErr.message}]`
+      }
+    }
   } catch (e) { return `[خطأ في قراءة ${file.original_name}: ${e.message}]` }
 }
 
@@ -444,6 +478,14 @@ async function buildContentPreview(file) {
     try { pretty = JSON.stringify(JSON.parse(raw), null, 2) } catch {}
     const escaped = pretty.substring(0, 6000).replace(/</g,'&lt;')
     return { type: 'html', html: `<pre style="font-size:11px;max-height:480px;overflow:auto;background:#f5f5f5;padding:10px;border-radius:6px;direction:ltr">${escaped}</pre>` }
+  }
+
+  if (ft === 'image') {
+    const imageUrl = `/uploads/users/${file.user_id}/projects/${file.project_id}/${file.stored_name}`
+    return {
+      type: 'image',
+      html: `<div style="text-align:center;padding:8px"><img src="${imageUrl}" alt="${file.original_name}" style="max-width:100%;max-height:480px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.15)" /></div>`
+    }
   }
 
   // markdown / text

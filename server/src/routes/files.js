@@ -57,7 +57,8 @@ const upload = multer({
   storage,
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc', '.md', '.txt', '.json']
+    const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc', '.md', '.txt', '.json',
+      '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.heic', '.heif']
     const ext = path.extname(file.originalname).toLowerCase()
     if (allowed.includes(ext)) cb(null, true)
     else cb(new Error('File type not supported'))
@@ -74,9 +75,23 @@ function getFileType(filename) {
   const map = {
     '.xlsx': 'excel', '.xlsm': 'excel', '.xls': 'excel',
     '.csv': 'csv', '.pdf': 'pdf', '.docx': 'word', '.doc': 'word',
-    '.md': 'markdown', '.txt': 'text', '.json': 'json'
+    '.md': 'markdown', '.txt': 'text', '.json': 'json',
+    '.jpg': 'image', '.jpeg': 'image', '.png': 'image', '.gif': 'image',
+    '.webp': 'image', '.bmp': 'image', '.tiff': 'image', '.tif': 'image',
+    '.heic': 'image', '.heif': 'image'
   }
   return map[ext] || 'unknown'
+}
+
+function getImageMimeType(filename) {
+  const ext = path.extname(filename).toLowerCase()
+  const map = {
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+    '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+    '.tiff': 'image/tiff', '.tif': 'image/tiff',
+    '.heic': 'image/heic', '.heif': 'image/heif'
+  }
+  return map[ext] || 'image/jpeg'
 }
 
 const LARGE_FILE_THRESHOLD = 15 * 1024 * 1024 // 15 MB
@@ -133,6 +148,10 @@ async function getFilePreview(filePath, fileType) {
       } catch {
         return { type: 'json', text: content.substring(0, 1000) }
       }
+    }
+    if (fileType === 'image') {
+      const mimeType = getImageMimeType(filePath)
+      return { type: 'image', mimeType, filePath }
     }
   } catch (e) {
     return { type: 'error', message: e.message }
@@ -289,7 +308,8 @@ router.post('/:projectId/assemble-chunks', async (req, res) => {
   const { uploadId, fileName, totalChunks } = req.body
   if (!uploadId || !fileName || !totalChunks) return res.status(400).json({ error: 'Missing params' })
 
-  const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc', '.md', '.txt', '.json']
+  const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc', '.md', '.txt', '.json',
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.heic', '.heif']
   const ext = path.extname(fileName).toLowerCase()
   if (!allowed.includes(ext)) return res.status(400).json({ error: 'File type not supported' })
 

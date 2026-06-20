@@ -64,7 +64,22 @@ export default function ChatInput({ onSend, disabled, queueCount = 0, projectId,
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop, noClick: true, noKeyboard: true,
-    accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': [], 'application/vnd.ms-excel': [], 'text/csv': [], 'application/pdf': [], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': [], 'application/msword': [] }
+    accept: {
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': [],
+      'application/vnd.ms-excel': [],
+      'text/csv': [],
+      'application/pdf': [],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': [],
+      'application/msword': [],
+      'image/jpeg': [],
+      'image/png': [],
+      'image/gif': [],
+      'image/webp': [],
+      'image/bmp': [],
+      'image/tiff': [],
+      'image/heic': [],
+      'image/heif': [],
+    }
   })
 
   const autoResize = () => {
