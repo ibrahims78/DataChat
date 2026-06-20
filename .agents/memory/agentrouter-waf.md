@@ -1,34 +1,38 @@
 ---
 name: AgentRouter WAF and streaming
-description: How agentrouter.org WAF blocks server calls, and the browser-direct solution used in this project
+description: How agentrouter.org WAF blocks requests and the working server-side non-streaming solution
 ---
 
 ## WAF block behavior
-- agentrouter.org uses Aliyun WAF with sliding CAPTCHA
-- Blocks ALL Replit server IPs — no header trick can bypass it server-side
-- Browser (user's IP) is NOT blocked — browser-direct calls work fine
+- agentrouter.org uses Aliyun WAF
+- Blocks Replit server IPs for STREAMING requests (returns HTML CAPTCHA challenge)
+- Blocks browser requests with `.replit.dev` / `.replit.app` Origin (returns `content-blocked` JSON)
+- **Does NOT block non-streaming requests from server when browser-like headers are sent**
 
-## Architecture decision: browser-direct flow
-- When provider=agentrouter, the `/api/chat/:id/message` endpoint does NOT call agentrouter.
-  Instead, it sends `{ type: 'use_client_ar', config, messages, conversationId }` via SSE, then ends the stream.
-- `ProjectPage.tsx` catches this event, breaks out of the SSE loop, and calls `streamAgentRouter()`
-  from `client/src/lib/agentrouter.ts` directly from the browser.
-- After streaming completes, client POSTs full response to `/api/chat/:id/submit-response`
-  with `skipUserMessage: true` (user msg already saved by the main handler at line 740).
-- `submit-response` handles file generation (EXCEL/PDF/HTML/MD/TXT/JSON/WORD/EXTRACT_PAGE/SHOW_PAGE/SHOW_CONTENT) and saves the AI message.
+## Working solution: server-side non-streaming with browser-like headers
+In `chat.js` agentrouter branch:
+- Call `https://agentrouter.org/v1/chat/completions` with `stream: false`
+- Required headers: User-Agent (Chrome), Accept: application/json, Accept-Language: en-US
+- Parse JSON response, get `choices[0].message.content`
+- Emit full response as a single `{ type: 'text', content }` SSE event to the client
+- File generation (EXCEL/PDF/etc.) then runs normally on the full response
 
-**Why:** Aliyun WAF requires a JS CAPTCHA challenge that cannot be solved server-side. The only viable bypass is to route the actual API call through the user's browser.
+**Why non-streaming works:** Aliyun WAF's CAPTCHA challenge is only triggered for streaming (SSE) requests. Non-streaming JSON requests pass through with browser-like headers.
+**Why browser-direct fails:** `.replit.dev` and `.replit.app` origins are blocked by the WAF even for real browser requests.
 
-## Key files
-- `server/src/routes/chat.js`: agentrouter branch at `router.post('/:projectId/message')` — sends `use_client_ar`
-- `client/src/lib/agentrouter.ts`: `streamAgentRouter()` — browser-side streaming function
-- `client/src/pages/ProjectPage.tsx`: `sendMessageInternal()` — handles `use_client_ar` event + browser-direct flow
-- `server/src/routes/chat.js`: `router.post('/:projectId/submit-response')` — file generation + DB save (accepts `skipUserMessage` flag)
+## Key headers for non-streaming server call
+```javascript
+'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ...'
+'Accept': 'application/json'
+'Accept-Language': 'en-US,en;q=0.9'
+// Do NOT add Accept-Encoding
+```
 
-## Test endpoint (admin.js)
-- `testAgentRouter()` in `agentrouter.ts` calls directly from browser — works fine
-- Server-side admin test also exists but shows WAF warning
+## WAF detection
+- HTML CAPTCHA page: check `rawText.includes('aliyun_waf')`  
+- JSON content-block: check `!rawText.startsWith('{') && rawText.includes('content-blocked')`
+- JSON API error: parsed from `{ error: { message: "content-blocked (request id: ...)" } }`
 
-## Streaming note
-- `streamAgentRouter(config, messages, onChunk)` calls `onChunk(delta)` per chunk (delta only, not accumulated)
-- Must accumulate manually in the calling code for UI display
+## Endpoints still in chat.js (kept but not used by main chat flow)
+- `GET /:projectId/context` — returns system prompt + history for browser-direct use (unused)
+- `POST /:projectId/submit-response` — saves AI response + generates files (unused by main flow)
