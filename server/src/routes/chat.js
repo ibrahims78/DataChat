@@ -8,6 +8,7 @@ const { parse } = require('csv-parse/sync')
 const ExcelJS = require('exceljs')
 const PDFDocument = require('pdfkit')
 const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = require('docx')
+const { PDFDocument: PDFLib } = require('pdf-lib')
 const { GoogleGenerativeAI } = require('@google/generative-ai')
 const db = require('../lib/db')
 const { authenticate } = require('../middleware/auth')
@@ -276,6 +277,24 @@ async function generateWordFile(content, filename) {
   const buffer = await Packer.toBuffer(doc)
   fs.writeFileSync(filePath, buffer)
   return { storedName, originalName: `${filename}.docx`, fileSize: fs.statSync(filePath).size }
+}
+
+// Extract one or more pages from an existing PDF preserving original layout
+async function extractPDFPages(srcPath, pages, outFilename) {
+  const srcBytes = fs.readFileSync(srcPath)
+  const srcDoc = await PDFLib.load(srcBytes, { ignoreEncryption: true })
+  const totalPages = srcDoc.getPageCount()
+  const newDoc = await PDFLib.create()
+  const indices = pages.map(p => p - 1).filter(i => i >= 0 && i < totalPages)
+  if (indices.length === 0) throw new Error(`الصفحات المطلوبة خارج النطاق (إجمالي الصفحات: ${totalPages})`)
+  const copied = await newDoc.copyPages(srcDoc, indices)
+  copied.forEach(pg => newDoc.addPage(pg))
+  const genDir = path.join(__dirname, '../../../uploads/generated')
+  if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true })
+  const storedName = `${Date.now()}-${outFilename}.pdf`
+  const filePath = path.join(genDir, storedName)
+  fs.writeFileSync(filePath, await newDoc.save())
+  return { storedName, originalName: `${outFilename}.pdf`, fileSize: fs.statSync(filePath).size }
 }
 
 // Amiri covers Arabic + full Latin + common symbols → no rectangles
@@ -598,6 +617,9 @@ router.post('/:projectId/message', async (req, res) => {
 9. عند طلب PDF أو تقرير PDF استخدم [PDF_FILE] حصراً — لا تستخدم [EXCEL_FILE] أبداً حتى لو الملف المرجعي هو Excel أو HTML أو يحتوي على بيانات — PDF يعني [PDF_FILE] دائماً بدون استثناء.
 10. إذا طلب المستخدم PDF لملف HTML أو أي ملف آخر، اقرأ محتواه من "الملفات المرفوعة للتحليل" واكتب محتواه في حقل content لـ [PDF_FILE] — لا تُنشئ Excel بديلاً.
 11. عند طلب ملف Word أو docx أو وورد استخدم [WORD_FILE] حصراً — اكتب المحتوى كاملاً بصيغة Markdown داخل الوسم.
+12. عند طلب اقتطاع/استخراج صفحة أو صفحات من ملف PDF موجود (مع الحفاظ على التنسيق الأصلي)، استخدم:
+[EXTRACT_PAGE]{"filename":"اسم_الملف_الأصلي.pdf","pages":[5],"output":"اسم_الملف_الجديد"}[/EXTRACT_PAGE]
+حيث pages هي قائمة أرقام الصفحات (تبدأ من 1). يمكن تحديد أكثر من صفحة مثل [3,4,5]. لا تستخدم [PDF_FILE] لهذا الغرض — [EXTRACT_PAGE] هو الوحيد الذي يحافظ على التنسيق الأصلي.
 
 ---
 
@@ -644,12 +666,13 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
     let txtMatch = fullResponse.match(/\[TXT_FILE\]([\s\S]*?)\[\/TXT_FILE\]/)
     let jsonMatch = fullResponse.match(/\[JSON_FILE\]([\s\S]*?)\[\/JSON_FILE\]/)
     let wordMatch = fullResponse.match(/\[WORD_FILE\]([\s\S]*?)\[\/WORD_FILE\]/)
+    let extractMatch = fullResponse.match(/\[EXTRACT_PAGE\]([\s\S]*?)\[\/EXTRACT_PAGE\]/)
 
     // --- Fallback: if user asked for a file but AI didn't generate a tag, make a second focused call ---
     const fileKeywords = /ملف\s*(excel|اكسل|xlsx|إكسل|pdf|بي دي اف|تقرير|word|html|ويب|md|markdown|txt|نصي|json)|أنشئ\s*ملف|اعطني\s*ملف|عطني\s*ملف|صدّر|صدر\s*البيانات|تحميل\s*ملف|download.*file|create.*file|generate.*file|export/i
     const userWantsFile = fileKeywords.test(message)
 
-    if (userWantsFile && !excelMatch && !pdfMatch && !htmlMatch && !mdMatch && !txtMatch && !jsonMatch && !wordMatch) {
+    if (userWantsFile && !excelMatch && !pdfMatch && !htmlMatch && !mdMatch && !txtMatch && !jsonMatch && !wordMatch && !extractMatch) {
       console.log('[FALLBACK] User requested file but AI did not generate tag. Triggering fallback call.')
       try {
         const isHTML = /html|ويب|صفحة\s*ويب/i.test(message)
@@ -717,12 +740,13 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       .replace(/\[TXT_FILE\][\s\S]*?\[\/TXT_FILE\]/g, '')
       .replace(/\[JSON_FILE\][\s\S]*?\[\/JSON_FILE\]/g, '')
       .replace(/\[WORD_FILE\][\s\S]*?\[\/WORD_FILE\]/g, '')
+      .replace(/\[EXTRACT_PAGE\][\s\S]*?\[\/EXTRACT_PAGE\]/g, '')
       .trim()
 
     // If AI sent only a file tag with no text, add a default confirmation message
-    const hadFileTag = excelMatch || pdfMatch || htmlMatch || mdMatch || txtMatch || jsonMatch || wordMatch
+    const hadFileTag = excelMatch || pdfMatch || htmlMatch || mdMatch || txtMatch || jsonMatch || wordMatch || extractMatch
     if (hadFileTag && !cleanResponse) {
-      const fileType = excelMatch ? 'Excel' : pdfMatch ? 'PDF' : htmlMatch ? 'HTML' : mdMatch ? 'Markdown' : jsonMatch ? 'JSON' : wordMatch ? 'Word' : 'نصي'
+      const fileType = excelMatch ? 'Excel' : pdfMatch ? 'PDF' : htmlMatch ? 'HTML' : mdMatch ? 'Markdown' : jsonMatch ? 'JSON' : wordMatch ? 'Word' : extractMatch ? 'PDF (مقتطع)' : 'نصي'
       cleanResponse = `جاري إنشاء ملف ${fileType} بالبيانات المطلوبة… ستجد زر التحميل في لوحة الملفات بعد لحظات.`
     }
 
@@ -903,6 +927,35 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         generatedFile = gf.rows[0]
         console.log('[WORD] File saved:', wf.storedName)
       } catch (e) { console.error('Word generation error:', e.message, e.stack) }
+    } else if (extractMatch) {
+      try {
+        const extractData = repairJSON(extractMatch[1].trim())
+        const srcFilename = extractData.filename || ''
+        const pages = Array.isArray(extractData.pages) ? extractData.pages : [extractData.pages || extractData.page || 1]
+        const outFilename = extractData.output || `صفحات_مقتطعة_${Date.now()}`
+
+        // Find the source file in the project
+        const fileRow = await db.query(
+          `SELECT * FROM files WHERE project_id=$1 AND (original_name ILIKE $2 OR original_name ILIKE $3) ORDER BY created_at DESC LIMIT 1`,
+          [req.params.projectId, `%${srcFilename}%`, `%${path.basename(srcFilename, path.extname(srcFilename))}%`]
+        )
+        if (!fileRow.rows.length) throw new Error(`لم يتم العثور على الملف: ${srcFilename}`)
+
+        const srcFile = fileRow.rows[0]
+        const uploadsBase = path.join(__dirname, '../../../uploads')
+        const srcPath = path.join(uploadsBase, srcFile.stored_name)
+        if (!fs.existsSync(srcPath)) throw new Error(`ملف المصدر غير موجود على القرص: ${srcFile.stored_name}`)
+
+        console.log(`[EXTRACT] Extracting pages ${JSON.stringify(pages)} from "${srcFile.original_name}"`)
+        const ef = await extractPDFPages(srcPath, pages, outFilename)
+
+        const gf = await db.query(
+          'INSERT INTO generated_files (project_id, message_id, original_name, stored_name, file_type, file_size) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+          [req.params.projectId, aiMsgResult.rows[0].id, ef.originalName, ef.storedName, 'pdf', ef.fileSize || null]
+        )
+        generatedFile = gf.rows[0]
+        console.log('[EXTRACT] File saved:', ef.storedName)
+      } catch (e) { console.error('Page extraction error:', e.message, e.stack) }
     }
 
     await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [req.params.projectId])
