@@ -875,14 +875,32 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       }
     }
 
-    if (provider === 'openai' || provider === 'agentrouter') {
-      const isAR = provider === 'agentrouter'
-      const endpoint = isAR ? 'https://agentrouter.org/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions'
-      const envKey = isAR ? process.env.AGENTROUTER_API_KEY : process.env.OPENAI_API_KEY
-      const apiKey = aiConfig.api_key || envKey || ''
-      const providerName = isAR ? 'AgentRouter' : 'OpenAI'
+    if (provider === 'agentrouter') {
+      // AgentRouter is WAF-blocked from server IPs → delegate to browser-direct flow.
+      // The client will stream from agentrouter.org directly (user's browser IP is not blocked)
+      // then POST the completed response back to /:projectId/submit-response for saving.
+      const chatMessages = [
+        { role: 'system', content: systemText },
+        ...msgs.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+        { role: 'user', content: message }
+      ]
+      res.write(`data: ${JSON.stringify({
+        type: 'use_client_ar',
+        config: {
+          apiKey: aiConfig.api_key || '',
+          model: selectedModel,
+          temperature: parseFloat(aiConfig.temperature) || 0.7
+        },
+        messages: chatMessages,
+        conversationId
+      })}\n\n`)
+      res.end()
+      return
+    } else if (provider === 'openai') {
+      const endpoint = 'https://api.openai.com/v1/chat/completions'
+      const apiKey = aiConfig.api_key || process.env.OPENAI_API_KEY || ''
       if (!apiKey) {
-        fullResponse = `عذراً، لم يتم ضبط مفتاح ${providerName} API. يرجى إضافته في الإعدادات.`
+        fullResponse = `عذراً، لم يتم ضبط مفتاح OpenAI API. يرجى إضافته في الإعدادات.`
         res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
       } else {
         const chatMessages = [
@@ -893,7 +911,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         try {
           await streamOpenAICompatible(endpoint, apiKey, selectedModel, chatMessages, parseFloat(aiConfig.temperature) || 0.7)
         } catch (aiErr) {
-          fullResponse = `عذراً، حدث خطأ في الاتصال بـ ${providerName}: ${aiErr.message}`
+          fullResponse = `عذراً، حدث خطأ في الاتصال بـ OpenAI: ${aiErr.message}`
           res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
         }
       }
@@ -964,21 +982,15 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
           : `أنشئ ملف Excel للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n${fileContents ? `\nالبيانات المتاحة:\n${fileContents.substring(0, 3000)}` : ''}\n\nالصيغة المطلوبة:\n[EXCEL_FILE]{"filename":"اسم_الملف","sheets":[{"name":"اسم الورقة","headers":["عمود1","عمود2"],"rows":[["قيمة1","قيمة2"]]}]}[/EXCEL_FILE]\n\nأخرج الوسم فقط لا غير.`
 
         let fallbackText = ''
-        if (provider === 'openai' || provider === 'agentrouter') {
-          const fbEndpoint = provider === 'agentrouter' ? 'https://agentrouter.org/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions'
-          const fbEnvKey = provider === 'agentrouter' ? process.env.AGENTROUTER_API_KEY : process.env.OPENAI_API_KEY
-          const apiKey = aiConfig.api_key || fbEnvKey || ''
+        if (provider === 'openai') {
+          const apiKey = aiConfig.api_key || process.env.OPENAI_API_KEY || ''
           if (apiKey) {
-            const oaFbRes = await fetch(fbEndpoint, {
+            const oaFbRes = await fetch('https://api.openai.com/v1/chat/completions', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiKey}`,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': 'application/json',
-                'Accept-Language': 'en-US,en;q=0.9',
               },
-
               body: JSON.stringify({ model: selectedModel, messages: [{ role: 'system', content: systemText }, { role: 'user', content: fallbackPrompt }], temperature: 0.3, max_tokens: 4096 })
             })
             if (oaFbRes.ok) { const d = await oaFbRes.json(); fallbackText = d.choices?.[0]?.message?.content || '' }
@@ -1419,16 +1431,18 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
 // POST /:projectId/submit-response — saves user+AI messages and generates files
 router.post('/:projectId/submit-response', async (req, res) => {
   try {
-    const { userMessage, aiResponse, conversationId } = req.body
-    if (!userMessage || !aiResponse || !conversationId) {
+    const { userMessage, aiResponse, conversationId, skipUserMessage } = req.body
+    if (!aiResponse || !conversationId) {
       return res.status(400).json({ error: 'Missing required fields' })
     }
 
-    // Save user message
-    await db.query(
-      'INSERT INTO messages (conversation_id, role, content) VALUES ($1,$2,$3)',
-      [conversationId, 'user', userMessage]
-    )
+    // Save user message only if not already saved by the calling route
+    if (!skipUserMessage && userMessage) {
+      await db.query(
+        'INSERT INTO messages (conversation_id, role, content) VALUES ($1,$2,$3)',
+        [conversationId, 'user', userMessage]
+      )
+    }
 
     // Parse file tags from AI response
     let fullResponse = aiResponse
