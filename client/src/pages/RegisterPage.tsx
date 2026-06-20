@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Eye, EyeOff, Loader2, CheckCircle, XCircle } from 'lucide-react'
+import { Eye, EyeOff, Loader2, CheckCircle, XCircle, Check } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../lib/api'
 import toast from 'react-hot-toast'
+
+const strengthColor: Record<number, string> = { 1: 'bg-red-400', 2: 'bg-yellow-400', 3: 'bg-green-500' }
+const strengthLabel: Record<number, string> = { 0: '', 1: 'ضعيفة', 2: 'متوسطة', 3: 'قوية' }
 
 export default function RegisterPage() {
   const [params] = useSearchParams()
@@ -16,8 +19,11 @@ export default function RegisterPage() {
   const [tokenError, setTokenError] = useState('')
   const [name, setName] = useState('')
   const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  const strength = password.length === 0 ? 0 : password.length < 6 ? 1 : password.length < 10 ? 2 : 3
 
   useEffect(() => {
     if (!token) {
@@ -33,7 +39,8 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return toast.error('أدخل اسمك')
-    if (password.length < 6) return toast.error('كلمة المرور يجب أن تكون 6 أحرف على الأقل')
+    if (password.length < 8) return toast.error('كلمة المرور يجب أن تكون 8 أحرف على الأقل')
+    if (password !== confirm) return toast.error('كلمتا المرور غير متطابقتين')
     setSubmitting(true)
     try {
       const r = await api.post('/auth/register', { token, name, password })
@@ -132,7 +139,7 @@ export default function RegisterPage() {
                     <input
                       className="input-field pe-10"
                       type={showPw ? 'text' : 'password'}
-                      placeholder="6 أحرف على الأقل"
+                      placeholder="8 أحرف على الأقل"
                       value={password}
                       onChange={e => setPassword(e.target.value)}
                     />
@@ -144,12 +151,43 @@ export default function RegisterPage() {
                       {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
+                  {password && (
+                    <div className="mt-2">
+                      <div className="flex gap-1 mb-1">
+                        {[1, 2, 3].map(i => (
+                          <div key={i} className={`h-1.5 flex-1 rounded-full ${i <= strength ? strengthColor[strength] : 'bg-gray-200 dark:bg-gray-700'}`} />
+                        ))}
+                      </div>
+                      <p className="text-xs text-[var(--muted)]">قوة كلمة المرور: {strengthLabel[strength]}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Confirm Password */}
+                <div>
+                  <label className="block text-sm font-semibold text-[var(--text)] mb-1">
+                    تأكيد كلمة المرور <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      className="input-field pe-10"
+                      type="password"
+                      placeholder="أعد كتابة كلمة المرور"
+                      value={confirm}
+                      onChange={e => setConfirm(e.target.value)}
+                    />
+                    {confirm && (
+                      <div className={`absolute end-3 top-1/2 -translate-y-1/2 ${confirm === password ? 'text-green-500' : 'text-red-500'}`}>
+                        {confirm === password ? <Check size={18} /> : <span className="text-xs font-bold">✗</span>}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="btn-primary w-full mt-2 flex items-center justify-center gap-2"
+                  className="btn-primary w-full py-3 text-base mt-2 flex items-center justify-center gap-2"
                 >
                   {submitting
                     ? <><Loader2 size={16} className="animate-spin" /> جاري الإنشاء...</>
