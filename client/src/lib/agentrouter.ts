@@ -35,7 +35,14 @@ export async function streamAgentRouter(
   if (!response.ok) {
     const errText = await response.text()
     let errMsg = `AgentRouter error ${response.status}`
-    try { errMsg = JSON.parse(errText)?.error?.message || errMsg } catch {}
+    try {
+      const parsed = JSON.parse(errText)
+      errMsg = parsed?.error?.message || parsed?.message || parsed?.error || errMsg
+    } catch {}
+    // Include raw response snippet for diagnosis
+    if (errMsg === `AgentRouter error ${response.status}` && errText) {
+      errMsg = `AgentRouter error ${response.status}: ${errText.substring(0, 300)}`
+    }
     throw new Error(errMsg)
   }
 
@@ -71,24 +78,19 @@ export async function streamAgentRouter(
 }
 
 export async function testAgentRouter(apiKey: string, model: string): Promise<{ ok: boolean; msg: string; warn?: string }> {
-  // Basic key format validation first
-  if (!apiKey || apiKey.length < 10) {
+  if (!apiKey || apiKey.length < 8) {
     return { ok: false, msg: 'المفتاح قصير جداً أو فارغ' }
-  }
-  if (!apiKey.startsWith('sk-')) {
-    return { ok: false, msg: 'صيغة المفتاح غير صحيحة — يجب أن يبدأ بـ sk-' }
   }
 
   try {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 10000)
+    const timeout = setTimeout(() => controller.abort(), 12000)
 
     const response = await fetch(`${AGENTROUTER_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
-        'Accept': 'application/json',
       },
       body: JSON.stringify({
         model,
@@ -106,7 +108,7 @@ export async function testAgentRouter(apiKey: string, model: string): Promise<{ 
 
     const errText = await response.text()
 
-    // WAF block — known Aliyun WAF pattern from Replit/cloud IPs
+    // WAF block
     if (errText.includes('content-blocked') || errText.includes('blocked') || response.status === 403) {
       return {
         ok: true,
@@ -115,22 +117,37 @@ export async function testAgentRouter(apiKey: string, model: string): Promise<{ 
       }
     }
 
+    // Parse actual error from response body
+    let actualMsg = ''
+    try {
+      const parsed = JSON.parse(errText)
+      actualMsg = parsed?.error?.message || parsed?.message || parsed?.error || ''
+    } catch {}
+
     if (response.status === 401) {
-      return { ok: false, msg: 'مفتاح API غير صحيح أو منتهي الصلاحية' }
+      const detail = actualMsg ? `: ${actualMsg}` : ''
+      return { ok: false, msg: `مفتاح API غير صحيح أو منتهي الصلاحية${detail}` }
     }
     if (response.status === 404) {
-      return { ok: false, msg: `النموذج "${model}" غير موجود — تحقق من اسمه` }
+      const detail = actualMsg ? `: ${actualMsg}` : ''
+      return { ok: false, msg: `النموذج "${model}" غير موجود — تحقق من اسمه${detail}` }
+    }
+    if (response.status === 429) {
+      return { ok: false, msg: 'تم استنفاد الحصة (Rate limit)' }
     }
 
-    let errMsg = `خطأ ${response.status}`
-    try { errMsg = JSON.parse(errText)?.error?.message || errMsg } catch {}
-    return { ok: false, msg: errMsg }
+    const displayMsg = actualMsg || errText.substring(0, 200)
+    return { ok: false, msg: `خطأ ${response.status}: ${displayMsg}` }
   } catch (err: any) {
     if (err.name === 'AbortError') {
-      return { ok: true, msg: '⚠️ انتهت مهلة الاتصال من بيئة التطوير', warn: 'agentrouter-waf' }
+      return { ok: true, msg: '⚠️ انتهت مهلة الاتصال (قد يكون المفتاح صحيحاً)', warn: 'agentrouter-waf' }
     }
-    // Network blocked (content-blocked browser error or CORS failure)
-    if (err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError') || err.message?.includes('Load failed')) {
+    if (
+      err.message?.includes('Failed to fetch') ||
+      err.message?.includes('NetworkError') ||
+      err.message?.includes('Load failed') ||
+      err.message?.includes('CORS')
+    ) {
       return {
         ok: true,
         msg: '⚠️ الطلب محجوب من بيئة Replit — المفتاح صيغته صحيحة',

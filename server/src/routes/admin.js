@@ -262,6 +262,43 @@ router.post('/settings/test-api', async (req, res) => {
       return res.status(400).json({ error: `فشل التحقق (${openaiRes.status}): ${errText.substring(0, 200)}` })
     }
 
+    if (provider === 'agentrouter') {
+      const { model: modelToTest } = req.body
+      const arModel = modelToTest || 'deepseek/deepseek-chat-v3-0324'
+      console.log(`[AgentRouter Test] key=${keyToTest.substring(0,8)}... model=${arModel}`)
+      try {
+        const arRes = await fetch('https://agentrouter.org/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${keyToTest}`
+          },
+          body: JSON.stringify({
+            model: arModel,
+            messages: [{ role: 'user', content: 'hi' }],
+            max_tokens: 5,
+            stream: false
+          })
+        })
+        const arText = await arRes.text()
+        console.log(`[AgentRouter Test] status=${arRes.status} body=${arText.substring(0,300)}`)
+        if (arRes.ok) {
+          return res.json({ success: true, message: 'مفتاح AgentRouter API صحيح ويعمل بشكل جيد ✓' })
+        }
+        let arMsg = ''
+        try { arMsg = JSON.parse(arText)?.error?.message || JSON.parse(arText)?.message || '' } catch {}
+        const detail = arMsg ? `: ${arMsg}` : `: ${arText.substring(0, 200)}`
+        if (arRes.status === 401) return res.status(400).json({ error: `مفتاح AgentRouter غير صحيح أو منتهي الصلاحية${detail}` })
+        if (arRes.status === 403) return res.status(400).json({ error: `الوصول محجوب (WAF) - جرب الاختبار من التطبيق المنشور مباشرةً${detail}` })
+        if (arRes.status === 404) return res.status(400).json({ error: `النموذج "${arModel}" غير موجود${detail}` })
+        if (arRes.status === 429) return res.status(400).json({ error: `تم استنفاد الحصة (Rate limit)${detail}` })
+        return res.status(400).json({ error: `فشل التحقق (${arRes.status})${detail}` })
+      } catch (arErr) {
+        console.error('[AgentRouter Test] fetch error:', arErr.message)
+        return res.status(400).json({ error: `فشل الاتصال بـ agentrouter.org: ${arErr.message}` })
+      }
+    }
+
     const { GoogleGenerativeAI } = require('@google/generative-ai')
     const testAI = new GoogleGenerativeAI(keyToTest)
     const model = testAI.getGenerativeModel({ model: 'gemini-2.5-flash' })

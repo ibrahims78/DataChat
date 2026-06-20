@@ -269,7 +269,10 @@ export default function ProjectPage() {
         }
       }
     } catch (err: any) {
-      setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: 'حدث خطأ في الاتصال. يرجى المحاولة مرة أخرى.' } : m))
+      const errMsg = err?.message && err.message !== 'Failed to fetch'
+        ? `❌ خطأ: ${err.message}`
+        : 'حدث خطأ في الاتصال. يرجى المحاولة مرة أخرى.'
+      setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, content: errMsg } : m))
     } finally {
       clearInterval(stepInterval)
       setIsTyping(false)

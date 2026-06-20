@@ -140,15 +140,12 @@ export default function SettingsPage() {
     setTestingApi(true)
     setApiTestResult(null)
     try {
-      if (aiSettings.provider === 'agentrouter') {
-        // Browser-direct test
-        const { testAgentRouter } = await import('../lib/agentrouter')
-        const result = await testAgentRouter(aiSettings.api_key, aiSettings.model || 'deepseek/deepseek-chat-v3-0324')
-        setApiTestResult({ ok: result.ok, msg: result.msg, warn: result.warn } as any)
-      } else {
-        const r = await api.post('/admin/settings/test-api', { api_key: aiSettings.api_key, provider: aiSettings.provider })
-        setApiTestResult({ ok: true, msg: r.data.message })
-      }
+      const r = await api.post('/admin/settings/test-api', {
+        api_key: aiSettings.api_key,
+        provider: aiSettings.provider,
+        model: aiSettings.model
+      })
+      setApiTestResult({ ok: true, msg: r.data.message })
     } catch (err: any) {
       setApiTestResult({ ok: false, msg: err.response?.data?.error || 'فشل التحقق' })
     } finally {
@@ -460,7 +457,7 @@ export default function SettingsPage() {
               <input
                 className="input-field pe-20 font-mono text-sm"
                 type={showApiKey ? 'text' : 'password'}
-                placeholder={aiSettings.provider === 'agentrouter' ? 'sk-...' : aiSettings.provider === 'openai' ? 'sk-...' : 'AIzaSy...'}
+                placeholder={aiSettings.provider === 'agentrouter' ? 'الصق مفتاح agentrouter.org هنا...' : aiSettings.provider === 'openai' ? 'sk-...' : 'AIzaSy...'}
                 value={aiSettings.api_key}
                 onChange={e => {
                   setAiSettings((p: any) => ({ ...p, api_key: e.target.value }))
