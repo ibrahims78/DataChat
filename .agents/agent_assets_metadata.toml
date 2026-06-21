@@ -6,3 +6,9 @@ id = "tp8v3lFIhY1ysC_LO8B5W"
 uri = "file://vision.md"
 type = "text"
 title = "DataChat — وثيقة الرؤية النسخة 2.6"
+
+[[outputs]]
+id = "LKSY4QovHdyYS15YKLWhs"
+uri = "file://attached_assets/جدول_الجرد_الاساسي_للأجهزة_محترف.xlsx"
+type = "table"
+title = "جدول الجرد الأساسي للأجهزة - نسخة احترافية"
