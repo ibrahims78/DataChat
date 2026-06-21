@@ -107,6 +107,7 @@ export interface FolderSyncAPI {
   readFileBlob:      (fh: FileSystemFileHandle)                                                       => Promise<Blob | null>
   createDirectory:   (folderName: string, dirPath: string)                                            => Promise<'created' | 'no_folder' | 'denied' | 'error'>
   writeFileContent:  (folderName: string, filePath: string, content: string | Blob, mimeType?: string) => Promise<SaveResult>
+  deleteFile:        (folderName: string, filePath: string)                                            => Promise<'deleted' | 'no_folder' | 'denied' | 'error'>
 
   // Legacy — single-folder compat (used by ProjectPage auto-save)
   pickFolder:         ()                             => Promise<void>
@@ -341,6 +342,26 @@ export function useFolderSync(): FolderSyncAPI {
     }
   }, [folders])
 
+  const deleteFile = useCallback(async (folderName: string, filePath: string): Promise<'deleted' | 'no_folder' | 'denied' | 'error'> => {
+    const entry = folders.find(f => f.name === folderName) ?? (folders[0] ?? null)
+    if (!entry) return 'no_folder'
+    try {
+      let perm = await entry.handle.queryPermission({ mode: 'readwrite' })
+      if (perm !== 'granted') perm = await entry.handle.requestPermission({ mode: 'readwrite' })
+      if (perm !== 'granted') return 'denied'
+      const parts = filePath.split('/').filter(Boolean)
+      const fileName = parts.pop()!
+      let dir: FileSystemDirectoryHandle = entry.handle
+      for (const part of parts) dir = await dir.getDirectoryHandle(part)
+      await dir.removeEntry(fileName)
+      return 'deleted'
+    } catch (e: any) {
+      if (e?.name === 'NotAllowedError') return 'denied'
+      console.error('deleteFile error:', e)
+      return 'error'
+    }
+  }, [folders])
+
   const writeFileContent = useCallback(async (
     folderName: string,
     filePath: string,
@@ -405,6 +426,7 @@ export function useFolderSync(): FolderSyncAPI {
     readFileBlob,
     createDirectory,
     writeFileContent,
+    deleteFile,
     pickFolder,
     removeFolder_,
     requestPermission_,

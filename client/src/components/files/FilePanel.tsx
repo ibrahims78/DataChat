@@ -10,6 +10,7 @@ import api from '../../lib/api'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../ui/ConfirmModal'
 import FolderSyncSection from './FolderSyncSection'
+import FolderFilesSection from './FolderFilesSection'
 import FolderImportModal from './FolderImportModal'
 import FolderCapabilitiesModal from './FolderCapabilitiesModal'
 
@@ -446,6 +447,13 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
       />
 
       <div className="flex-1 overflow-y-auto p-2 space-y-3">
+
+        {/* Linked folder files — inline with full capabilities */}
+        <FolderFilesSection
+          projectId={projectId}
+          onRefresh={onRefresh}
+          onAnalyze={onBatchAnalyze}
+        />
 
         {/* New folder input */}
         {creatingFolder && (
