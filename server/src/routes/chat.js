@@ -977,6 +977,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         model: selectedModel,
         generationConfig: {
           temperature: parseFloat(aiConfig.temperature) || 0.7,
+          maxOutputTokens: 65536,
         },
         systemInstruction: { role: 'user', parts: [{ text: systemText }] }
       })
@@ -1036,7 +1037,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
           ? `أنشئ ملف PDF للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n\nالصيغة المطلوبة:\n[PDF_FILE]{"filename":"اسم","title":"العنوان","content":"المحتوى الكامل"}[/PDF_FILE]`
           : isWord
           ? `أنشئ ملف Word للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n${fileContents ? `\nالبيانات المتاحة:\n${fileContents.substring(0, 3000)}` : ''}\n\nالصيغة المطلوبة (اسم الملف ثم | ثم المحتوى بصيغة Markdown):\n[WORD_FILE]اسم_الملف|# العنوان الرئيسي\n\n## القسم الأول\n\nالمحتوى الكامل هنا...[/WORD_FILE]\n\nأخرج الوسم فقط لا غير.`
-          : `أنشئ ملف Excel للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n${fileContents ? `\nالبيانات المتاحة:\n${fileContents.substring(0, 3000)}` : ''}\n\nالصيغة المطلوبة:\n[EXCEL_FILE]{"filename":"اسم_الملف","sheets":[{"name":"اسم الورقة","headers":["عمود1","عمود2"],"rows":[["قيمة1","قيمة2"]]}]}[/EXCEL_FILE]\n\nأخرج الوسم فقط لا غير.`
+          : `أنشئ ملف Excel للطلب التالي وأخرج فقط الوسم بدون أي نص آخر:\nالطلب: ${message}\n${fileContents ? `\nالبيانات المتاحة:\n${fileContents.substring(0, 80000)}` : ''}\n\nالصيغة المطلوبة:\n[EXCEL_FILE]{"filename":"اسم_الملف","sheets":[{"name":"اسم الورقة","headers":["عمود1","عمود2"],"rows":[["قيمة1","قيمة2"]]}]}[/EXCEL_FILE]\n\nأخرج الوسم فقط لا غير.`
 
         let fallbackText = ''
         if (provider === 'openai') {
@@ -1055,7 +1056,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         } else {
           const fallbackModel = genAI.getGenerativeModel({
             model: selectedModel,
-            generationConfig: { temperature: 0.3 }
+            generationConfig: { temperature: 0.3, maxOutputTokens: 65536 }
           })
           const fallbackResult = await fallbackModel.generateContent(fallbackPrompt)
           fallbackText = fallbackResult.response.text()
