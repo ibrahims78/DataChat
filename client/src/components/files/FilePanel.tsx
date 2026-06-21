@@ -195,7 +195,7 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
     setDragOverTarget(null)
     if (!dragItem || dragItem.type !== 'file' || dragItem.folderId === folderId) { setDragItem(null); return }
     try {
-      const updatedFiles = files.map((f, i) =>
+      const updatedFiles = files.map(f =>
         f.id === dragItem.id
           ? { id: f.id, sort_order: f.sort_order, folder_id: folderId }
           : { id: f.id, sort_order: f.sort_order, folder_id: f.folder_id ?? null }
@@ -313,33 +313,39 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
           {!!f.file_size && <p className="text-xs text-[var(--muted)]">{formatSize(f.file_size)}</p>}
         </div>
         <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          <button onClick={() => startRename('file', f.id, fileName(f))}
+          <button
+            onClick={e => { e.stopPropagation(); startRename('file', f.id, fileName(f)) }}
             className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="إعادة التسمية">
             <Pencil size={11} />
           </button>
           {(f.file_type === 'excel' || f.file_type === 'csv') ? (
-            <button onClick={() => downloadFile(f)}
+            <button
+              onClick={e => { e.stopPropagation(); downloadFile(f) }}
               className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="فتح في Excel">
               <Download size={11} />
             </button>
           ) : (f.file_type === 'markdown' || f.file_type === 'text' || f.file_type === 'json') ? (
             <>
-              <button onClick={() => showPreview(f)}
+              <button
+                onClick={e => { e.stopPropagation(); showPreview(f) }}
                 className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="معاينة">
                 <Eye size={11} />
               </button>
-              <button onClick={() => downloadFile(f)}
+              <button
+                onClick={e => { e.stopPropagation(); downloadFile(f) }}
                 className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="تحميل">
                 <Download size={11} />
               </button>
             </>
           ) : (
-            <button onClick={() => showPreview(f)}
+            <button
+              onClick={e => { e.stopPropagation(); showPreview(f) }}
               className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="معاينة">
               <Eye size={11} />
             </button>
           )}
-          <button onClick={() => setDeleteTarget({ type: 'file', item: f })}
+          <button
+            onClick={e => { e.stopPropagation(); setDeleteTarget({ type: 'file', item: f }) }}
             className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-[var(--muted)] hover:text-red-500 transition-colors" title="حذف">
             <Trash2 size={11} />
           </button>
@@ -390,15 +396,18 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
           )}
         </div>
         <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          <button onClick={() => startRename('gen', f.id, fileName(f))}
+          <button
+            onClick={e => { e.stopPropagation(); startRename('gen', f.id, fileName(f)) }}
             className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="إعادة التسمية">
             <Pencil size={11} />
           </button>
-          <button onClick={() => downloadGenFile(f)}
+          <button
+            onClick={e => { e.stopPropagation(); downloadGenFile(f) }}
             className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="تحميل">
             <Download size={11} />
           </button>
-          <button onClick={() => setDeleteTarget({ type: 'gen', item: f })}
+          <button
+            onClick={e => { e.stopPropagation(); setDeleteTarget({ type: 'gen', item: f }) }}
             className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-[var(--muted)] hover:text-red-500 transition-colors" title="حذف">
             <Trash2 size={11} />
           </button>
@@ -407,35 +416,38 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
     )
   }
 
-  // ─── Panel body (shared between desktop sidebar and mobile drawer) ──────────
-  function PanelBody({ onClose }: { onClose?: () => void }) {
-    return (
-      <>
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-          <span className="font-semibold text-sm text-[var(--text)]">{tr('files')}</span>
-          <div className="flex items-center gap-1">
-            <button onClick={() => setCreatingFolder(true)}
-              className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] hover:text-primary-600 transition-colors" title={tr('newFolder')}>
-              <FolderPlus size={14} />
+  // ─── Shared panel content (called as function, not rendered as component) ───
+  const panelContent = (onClose?: () => void) => (
+    <>
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+        <span className="font-semibold text-sm text-[var(--text)]">{tr('files')}</span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setCreatingFolder(true)}
+            className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] hover:text-primary-600 transition-colors" title={tr('newFolder')}>
+            <FolderPlus size={14} />
+          </button>
+          <button
+            onClick={onUpload}
+            className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] hover:text-primary-600 transition-colors" title={tr('uploadFile')}>
+            <Upload size={14} />
+          </button>
+          {onClose ? (
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors" title="إغلاق">
+              <X size={14} />
             </button>
-            <button onClick={onUpload}
-              className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] hover:text-primary-600 transition-colors" title={tr('uploadFile')}>
-              <Upload size={14} />
+          ) : (
+            <button
+              onClick={() => setCollapsed(true)}
+              className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors">
+              <ChevronRight size={14} className={lang === 'ar' ? '' : 'rotate-180'} />
             </button>
-            {onClose ? (
-              <button onClick={onClose}
-                className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors" title="إغلاق">
-                <X size={14} />
-              </button>
-            ) : (
-              <button onClick={() => setCollapsed(true)}
-                className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors">
-                <ChevronRight size={14} className={lang === 'ar' ? '' : 'rotate-180'} />
-              </button>
-            )}
-          </div>
+          )}
         </div>
+      </div>
 
       {/* Folder sync section */}
       <FolderSyncSection
@@ -449,7 +461,7 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
 
       <div className="flex-1 overflow-y-auto p-2 space-y-3">
 
-        {/* Linked folder files — inline with full capabilities */}
+        {/* Linked folder files */}
         <FolderFilesSection
           projectId={projectId}
           onRefresh={onRefresh}
@@ -488,12 +500,14 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
               className={`rounded-lg transition-all ${isDropTarget ? 'ring-2 ring-primary-400 bg-primary-50 dark:bg-primary-900/20' : ''}`}
             >
               {/* Folder header */}
-              <div className="flex items-center gap-1 px-2 py-1.5 group rounded-lg hover:bg-[var(--bg)] cursor-pointer"
+              <div
+                className="flex items-center gap-1 px-2 py-1.5 group rounded-lg hover:bg-[var(--bg)] cursor-pointer"
                 onClick={() => setCollapsedFolders(prev => {
                   const s = new Set(prev)
                   s.has(folder.id) ? s.delete(folder.id) : s.add(folder.id)
                   return s
-                })}>
+                })}
+              >
                 <span className="text-primary-500 shrink-0">
                   {isOpen ? <FolderOpen size={14} /> : <Folder size={14} />}
                 </span>
@@ -508,18 +522,21 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
                     className="text-xs flex-1 bg-[var(--bg)] border border-primary-400 rounded px-1.5 py-0.5 outline-none text-[var(--text)]"
                   />
                 ) : (
-                  <span className="text-xs font-medium text-[var(--text)] flex-1 truncate"
+                  <span
+                    className="text-xs font-medium text-[var(--text)] flex-1 truncate"
                     onDoubleClick={e => { e.stopPropagation(); startRename('folder', folder.id, folder.name) }}>
                     {folder.name}
                   </span>
                 )}
                 <span className="text-xs text-[var(--muted)]">{folderFiles.length}</span>
                 <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                  <button onClick={() => startRename('folder', folder.id, folder.name)}
+                  <button
+                    onClick={e => { e.stopPropagation(); startRename('folder', folder.id, folder.name) }}
                     className="p-0.5 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors">
                     <Pencil size={10} />
                   </button>
-                  <button onClick={() => setDeleteTarget({ type: 'folder', item: folder })}
+                  <button
+                    onClick={e => { e.stopPropagation(); setDeleteTarget({ type: 'folder', item: folder }) }}
                     className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-[var(--muted)] hover:text-red-500 transition-colors">
                     <Trash2 size={10} />
                   </button>
@@ -588,7 +605,7 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
       {/* Confirm delete modal */}
       <ConfirmModal
         open={!!deleteTarget}
-        title={deleteTarget?.type === 'folder' ? tr('deleteFolder') : deleteTarget?.type === 'gen' ? 'حذف الملف' : 'حذف الملف'}
+        title={deleteTarget?.type === 'folder' ? tr('deleteFolder') : 'حذف الملف'}
         icon="🗑️"
         danger
         description={deleteModalDesc()}
@@ -663,8 +680,6 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
                   <p className="text-xs text-[var(--muted)] mb-2">معاينة JSON</p>
                   <pre className="text-sm text-[var(--text)] whitespace-pre-wrap leading-relaxed bg-[var(--bg)] rounded-lg p-4 font-mono overflow-x-auto">{preview.text}{preview.text?.length >= 1000 ? '...' : ''}</pre>
                 </div>
-              ) : preview.type === 'error' ? (
-                <p className="text-red-500 text-sm">{preview.message}</p>
               ) : (
                 <p className="text-red-500 text-sm">{preview.message}</p>
               )}
@@ -674,7 +689,6 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
       )}
     </>
   )
-  }
 
   // ─── Collapsed (desktop only) ──────────────────────────────────────────────
   if (collapsed) return (
@@ -691,14 +705,14 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
         <div className="fixed inset-0 z-40 flex md:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={onMobileClose} />
           <aside className={`relative z-50 w-72 bg-[var(--surface)] flex flex-col h-full shadow-2xl ${lang === 'ar' ? 'me-auto' : 'ms-auto'}`}>
-            <PanelBody onClose={onMobileClose} />
+            {panelContent(onMobileClose)}
           </aside>
         </div>
       )}
 
       {/* Desktop sidebar */}
       <aside className="hidden md:flex flex-col w-64 bg-[var(--surface)] border-s border-[var(--border)] shrink-0">
-        <PanelBody />
+        {panelContent()}
       </aside>
     </>
   )
