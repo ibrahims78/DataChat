@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   FolderOpen, RefreshCw, Download, MessageSquare, Trash2,
-  ChevronDown, ChevronUp, Loader2, AlertCircle, BookOpen
+  ChevronDown, ChevronUp, Loader2, AlertCircle, BookOpen,
+  Pencil, Copy, MoveRight, FolderPlus, Check, X, FileEdit
 } from 'lucide-react'
 import { useFolderSyncContext } from '../../contexts/FolderSyncContext'
-import type { FileInfo } from '../../lib/useFolderSync'
+import type { FileInfo, FolderEntry } from '../../lib/useFolderSync'
 import { uploadChunked } from '../../lib/uploadChunked'
 import { canReadDirectly } from '../../lib/folderFileReader'
 import toast from 'react-hot-toast'
@@ -45,13 +46,189 @@ const SUPPORTED_EXTS = new Set([
   'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'heic', 'heif'
 ])
 
+const EDITABLE_EXTS = new Set(['txt', 'md', 'json', 'html', 'htm', 'csv'])
+
 function isSupported(name: string): boolean {
   return SUPPORTED_EXTS.has(name.split('.').pop()?.toLowerCase() || '')
+}
+function isEditable(name: string): boolean {
+  return EDITABLE_EXTS.has(name.split('.').pop()?.toLowerCase() || '')
+}
+
+// ── CopyMoveModal ─────────────────────────────────────────────────────────────
+interface CopyMoveModalProps {
+  mode: 'copy' | 'move'
+  fi: FileInfo
+  sourceFolderName: string
+  grantedFolders: FolderEntry[]
+  onClose: () => void
+  onConfirm: (targetFolder: string, targetPath: string) => Promise<void>
+}
+
+function CopyMoveModal({ mode, fi, sourceFolderName, grantedFolders, onClose, onConfirm }: CopyMoveModalProps) {
+  const [targetFolder, setTargetFolder] = useState(sourceFolderName)
+  const [subPath, setSubPath] = useState(() => {
+    const parts = fi.path.split('/')
+    return parts.length > 1 ? parts.slice(0, -1).join('/') : ''
+  })
+  const [newName, setNewName] = useState(fi.name)
+  const [busy, setBusy] = useState(false)
+
+  const targetPath = subPath.trim()
+    ? `${subPath.trim().replace(/\/$/, '')}/${newName.trim()}`
+    : newName.trim()
+
+  const handleConfirm = async () => {
+    if (!newName.trim()) return
+    setBusy(true)
+    await onConfirm(targetFolder, targetPath)
+    setBusy(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="card p-5 w-full max-w-md animate-fade-in" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-[var(--text)] flex items-center gap-2">
+            {mode === 'copy' ? <Copy size={16} className="text-primary-500" /> : <MoveRight size={16} className="text-primary-500" />}
+            {mode === 'copy' ? 'نسخ الملف' : 'نقل الملف'}
+          </h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-[var(--bg)] text-[var(--muted)]"><X size={16} /></button>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-[var(--muted)] block mb-1">الملف المصدر</label>
+            <div className="text-xs text-[var(--text)] bg-[var(--bg)] rounded-lg px-3 py-2 font-mono truncate">{fi.path}</div>
+          </div>
+
+          <div>
+            <label className="text-xs text-[var(--muted)] block mb-1">المجلد المرتبط الهدف</label>
+            <select
+              value={targetFolder}
+              onChange={e => setTargetFolder(e.target.value)}
+              className="w-full text-xs bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--text)] outline-none focus:border-primary-400"
+            >
+              {grantedFolders.map(f => (
+                <option key={f.name} value={f.name}>{f.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-[var(--muted)] block mb-1">مسار المجلد الفرعي (اختياري)</label>
+            <input
+              type="text"
+              value={subPath}
+              onChange={e => setSubPath(e.target.value)}
+              placeholder="مثال: تقارير/2025"
+              className="w-full text-xs bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--text)] outline-none focus:border-primary-400"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-[var(--muted)] block mb-1">اسم الملف</label>
+            <input
+              type="text"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              className="w-full text-xs bg-[var(--bg)] border border-[var(--border)] rounded-lg px-3 py-2 text-[var(--text)] outline-none focus:border-primary-400"
+            />
+          </div>
+
+          <div className="text-[11px] text-[var(--muted)] bg-[var(--bg)] rounded-lg px-3 py-2">
+            المسار النهائي: <span className="font-mono text-primary-600">{targetFolder}/{targetPath}</span>
+          </div>
+        </div>
+
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} className="flex-1 btn-ghost text-sm">إلغاء</button>
+          <button
+            onClick={handleConfirm}
+            disabled={busy || !newName.trim()}
+            className="flex-1 btn-primary text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {busy ? <Loader2 size={14} className="animate-spin" /> : (mode === 'copy' ? <Copy size={14} /> : <MoveRight size={14} />)}
+            {mode === 'copy' ? 'نسخ' : 'نقل'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── EditModal ─────────────────────────────────────────────────────────────────
+interface EditModalProps {
+  fi: FileInfo
+  folderName: string
+  onClose: () => void
+  onSave: (folderName: string, filePath: string, content: string) => Promise<void>
+}
+
+function EditModal({ fi, folderName, onClose, onSave }: EditModalProps) {
+  const [content, setContent] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    fi.fileHandle.getFile().then(f => f.text()).then(t => {
+      setContent(t)
+      setLoading(false)
+    }).catch(() => {
+      setContent('')
+      setLoading(false)
+    })
+  }, [fi])
+
+  const handleSave = async () => {
+    setBusy(true)
+    await onSave(folderName, fi.path, content)
+    setBusy(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="card p-5 w-full max-w-2xl max-h-[85vh] flex flex-col animate-fade-in" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-[var(--text)] flex items-center gap-2 text-sm">
+            <FileEdit size={15} className="text-primary-500" />
+            تعديل: {fi.name}
+          </h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-[var(--bg)] text-[var(--muted)]"><X size={16} /></button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 size={20} className="animate-spin text-primary-500" />
+          </div>
+        ) : (
+          <textarea
+            value={content}
+            onChange={e => setContent(e.target.value)}
+            className="flex-1 min-h-[400px] text-xs font-mono bg-[var(--bg)] border border-[var(--border)] rounded-lg p-3 text-[var(--text)] outline-none focus:border-primary-400 resize-none"
+            dir="ltr"
+          />
+        )}
+
+        <div className="flex gap-2 mt-3">
+          <button onClick={onClose} className="flex-1 btn-ghost text-sm">إلغاء</button>
+          <button
+            onClick={handleSave}
+            disabled={busy || loading}
+            className="flex-1 btn-primary text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+            حفظ
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ── component ─────────────────────────────────────────────────────────────────
 export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, onOpenFilesChange }: Props) {
-  const { folders, listFiles, deleteFile } = useFolderSyncContext()
+  const { folders, listFiles, deleteFile, writeFileContent, createDirectory, readFileBlob } = useFolderSyncContext()
   const grantedFolders = folders.filter(f => f.perm === 'granted')
 
   const [filesByFolder, setFilesByFolder] = useState<Record<string, FileInfo[]>>({})
@@ -60,7 +237,21 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
   const [importing, setImporting] = useState<Set<string>>(new Set())
   const [importingAll, setImportingAll] = useState<Set<string>>(new Set())
   const [deleteTarget, setDeleteTarget] = useState<{ folder: string; fi: FileInfo } | null>(null)
-  const [openFiles, setOpenFiles] = useState<Set<string>>(new Set())  // paths open for AI reading
+  const [openFiles, setOpenFiles] = useState<Set<string>>(new Set())
+
+  // Rename state (inline)
+  const [renaming, setRenaming] = useState<{ folder: string; fi: FileInfo; value: string } | null>(null)
+  const renameInputRef = useRef<HTMLInputElement>(null)
+
+  // New folder creation state
+  const [creatingFolder, setCreatingFolder] = useState<{ folderName: string; value: string } | null>(null)
+  const newFolderRef = useRef<HTMLInputElement>(null)
+
+  // Copy/Move modal
+  const [copyMoveTarget, setCopyMoveTarget] = useState<{ mode: 'copy' | 'move'; folder: string; fi: FileInfo } | null>(null)
+
+  // Edit modal
+  const [editTarget, setEditTarget] = useState<{ folder: string; fi: FileInfo } | null>(null)
 
   const allFiles = Object.values(filesByFolder).flat()
 
@@ -73,11 +264,18 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
     })
   }, [])
 
-  // Notify parent when open files change
   useEffect(() => {
     const openFileInfos = allFiles.filter(f => openFiles.has(f.path))
     onOpenFilesChange?.(openFileInfos)
   }, [openFiles, JSON.stringify(allFiles.map(f => f.path))])
+
+  useEffect(() => {
+    if (renaming) setTimeout(() => renameInputRef.current?.focus(), 50)
+  }, [renaming])
+
+  useEffect(() => {
+    if (creatingFolder) setTimeout(() => newFolderRef.current?.focus(), 50)
+  }, [creatingFolder])
 
   const loadRef = useRef(listFiles)
   useEffect(() => { loadRef.current = listFiles }, [listFiles])
@@ -98,6 +296,7 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
     grantedFolders.forEach(f => loadFolder(f.name))
   }, [grantedFolders.map(f => f.name).join('|')])
 
+  // ── Import ────────────────────────────────────────────────────────────────
   const importFile = useCallback(async (folderName: string, fi: FileInfo) => {
     const key = `${folderName}:${fi.path}`
     setImporting(prev => new Set([...prev, key]))
@@ -106,11 +305,9 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
       const file = await fi.fileHandle.getFile()
       await uploadChunked(file, projectId, () => {})
       await onRefresh()
-      toast.dismiss(tid)
-      toast.success(`✅ تم استيراد "${fi.name}"`)
+      toast.dismiss(tid); toast.success(`✅ تم استيراد "${fi.name}"`)
     } catch {
-      toast.dismiss(tid)
-      toast.error(`فشل استيراد "${fi.name}"`)
+      toast.dismiss(tid); toast.error(`فشل استيراد "${fi.name}"`)
     } finally {
       setImporting(prev => { const s = new Set(prev); s.delete(key); return s })
     }
@@ -130,8 +327,7 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
       } catch {}
     }
     await onRefresh()
-    toast.dismiss(tid)
-    toast.success(`✅ تم استيراد ${done} من أصل ${files.length} ملف`)
+    toast.dismiss(tid); toast.success(`✅ تم استيراد ${done} من أصل ${files.length} ملف`)
     setImportingAll(prev => { const s = new Set(prev); s.delete(folderName); return s })
   }, [filesByFolder, projectId, onRefresh])
 
@@ -146,13 +342,13 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
       toast.dismiss(tid)
       onAnalyze?.(`حلل الملف "${fi.name}"`)
     } catch {
-      toast.dismiss(tid)
-      toast.error(`فشل رفع "${fi.name}"`)
+      toast.dismiss(tid); toast.error(`فشل رفع "${fi.name}"`)
     } finally {
       setImporting(prev => { const s = new Set(prev); s.delete(key); return s })
     }
   }, [projectId, onRefresh, onAnalyze])
 
+  // ── Delete ────────────────────────────────────────────────────────────────
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) return
     const { folder, fi } = deleteTarget
@@ -169,17 +365,110 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
     }
   }, [deleteTarget, deleteFile])
 
+  // ── Rename ────────────────────────────────────────────────────────────────
+  const commitRename = useCallback(async () => {
+    if (!renaming || !renaming.value.trim()) { setRenaming(null); return }
+    const { folder, fi, value } = renaming
+    const newName = value.trim()
+    if (newName === fi.name) { setRenaming(null); return }
+
+    const subDir = fi.path.includes('/')
+      ? fi.path.split('/').slice(0, -1).join('/') + '/'
+      : ''
+    const newPath = subDir + newName
+
+    const tid = toast.loading(`جاري إعادة تسمية "${fi.name}"…`)
+    setRenaming(null)
+    try {
+      const blob = await readFileBlob(fi.fileHandle)
+      if (!blob) throw new Error('read failed')
+      const writeResult = await writeFileContent(folder, newPath, blob)
+      if (writeResult !== 'saved') throw new Error(writeResult)
+      await deleteFile(folder, fi.path)
+      toast.dismiss(tid); toast.success(`✅ تمت إعادة التسمية إلى "${newName}"`)
+      await loadFolder(folder)
+    } catch {
+      toast.dismiss(tid); toast.error('فشل إعادة التسمية')
+    }
+  }, [renaming, readFileBlob, writeFileContent, deleteFile, loadFolder])
+
+  // ── Copy / Move ───────────────────────────────────────────────────────────
+  const executeCopyMove = useCallback(async (
+    mode: 'copy' | 'move',
+    sourceFolderName: string,
+    fi: FileInfo,
+    targetFolderName: string,
+    targetPath: string
+  ) => {
+    setCopyMoveTarget(null)
+    const tid = toast.loading(mode === 'copy' ? `جاري نسخ "${fi.name}"…` : `جاري نقل "${fi.name}"…`)
+    try {
+      const blob = await readFileBlob(fi.fileHandle)
+      if (!blob) throw new Error('read failed')
+      const writeResult = await writeFileContent(targetFolderName, targetPath, blob)
+      if (writeResult !== 'saved') throw new Error(writeResult)
+      if (mode === 'move') {
+        await deleteFile(sourceFolderName, fi.path)
+        await loadFolder(sourceFolderName)
+      }
+      if (targetFolderName !== sourceFolderName || mode === 'move') {
+        await loadFolder(targetFolderName)
+      } else {
+        await loadFolder(sourceFolderName)
+      }
+      toast.dismiss(tid)
+      toast.success(mode === 'copy' ? `✅ تم نسخ "${fi.name}"` : `✅ تم نقل "${fi.name}"`)
+    } catch {
+      toast.dismiss(tid)
+      toast.error(mode === 'copy' ? 'فشل النسخ' : 'فشل النقل')
+    }
+  }, [readFileBlob, writeFileContent, deleteFile, loadFolder])
+
+  // ── Create folder ─────────────────────────────────────────────────────────
+  const commitCreateFolder = useCallback(async () => {
+    if (!creatingFolder || !creatingFolder.value.trim()) { setCreatingFolder(null); return }
+    const { folderName, value } = creatingFolder
+    setCreatingFolder(null)
+    const tid = toast.loading(`جاري إنشاء المجلد "${value}"…`)
+    try {
+      const result = await createDirectory(folderName, value.trim())
+      if (result === 'created') {
+        toast.dismiss(tid); toast.success(`✅ تم إنشاء المجلد "${value}"`)
+        await loadFolder(folderName)
+      } else {
+        throw new Error(result)
+      }
+    } catch {
+      toast.dismiss(tid); toast.error('فشل إنشاء المجلد')
+    }
+  }, [creatingFolder, createDirectory, loadFolder])
+
+  // ── Edit file ─────────────────────────────────────────────────────────────
+  const saveEdit = useCallback(async (folderName: string, filePath: string, content: string) => {
+    setEditTarget(null)
+    const tid = toast.loading('جاري الحفظ…')
+    try {
+      const result = await writeFileContent(folderName, filePath, content)
+      if (result !== 'saved') throw new Error(result)
+      toast.dismiss(tid); toast.success('✅ تم الحفظ')
+      await loadFolder(folderName)
+    } catch {
+      toast.dismiss(tid); toast.error('فشل الحفظ')
+    }
+  }, [writeFileContent, loadFolder])
+
   if (!grantedFolders.length) return null
 
   const totalOpen = openFiles.size
 
   return (
     <>
+      {/* Open for AI indicator */}
       {totalOpen > 0 && (
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
           <BookOpen size={12} className="text-emerald-600 shrink-0" />
           <span className="text-[11px] text-emerald-700 dark:text-emerald-300 flex-1">
-            {totalOpen} {totalOpen === 1 ? 'ملف مفتوح' : 'ملفات مفتوحة'} للذكاء الاصطناعي — يقرأ محتواها مع كل رسالة
+            {totalOpen} {totalOpen === 1 ? 'ملف مفتوح' : 'ملفات مفتوحة'} للذكاء الاصطناعي
           </span>
           <button
             onClick={() => setOpenFiles(new Set())}
@@ -189,6 +478,7 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
           </button>
         </div>
       )}
+
       {grantedFolders.map(folder => {
         const files = filesByFolder[folder.name] || []
         const isLoading = loadingFolders.has(folder.name)
@@ -211,6 +501,15 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
                 {isCollapsed ? <ChevronDown size={12} className="text-[var(--muted)] shrink-0" /> : <ChevronUp size={12} className="text-[var(--muted)] shrink-0" />}
               </button>
               <div className="flex items-center gap-1 shrink-0">
+                {/* New folder button */}
+                <button
+                  onClick={() => setCreatingFolder({ folderName: folder.name, value: '' })}
+                  title="إنشاء مجلد فرعي"
+                  className="p-1 rounded-lg hover:bg-[var(--card)] text-[var(--muted)] hover:text-amber-500 transition-colors"
+                >
+                  <FolderPlus size={12} />
+                </button>
+                {/* Refresh */}
                 <button
                   onClick={() => loadFolder(folder.name)}
                   disabled={isLoading}
@@ -219,6 +518,7 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
                 >
                   <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
                 </button>
+                {/* Import all */}
                 <button
                   onClick={() => importAll(folder.name)}
                   disabled={isImportingAll || !files.some(f => isSupported(f.name))}
@@ -227,13 +527,29 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
                              text-primary-700 dark:text-primary-300 hover:bg-primary-200 dark:hover:bg-primary-900/60
                              text-[11px] font-medium transition-colors disabled:opacity-40"
                 >
-                  {isImportingAll
-                    ? <Loader2 size={11} className="animate-spin" />
-                    : <Download size={11} />}
+                  {isImportingAll ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
                   استيراد الكل
                 </button>
               </div>
             </div>
+
+            {/* New subfolder input */}
+            {creatingFolder?.folderName === folder.name && (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bg)] border-t border-[var(--border)]">
+                <FolderPlus size={12} className="text-amber-500 shrink-0" />
+                <input
+                  ref={newFolderRef}
+                  value={creatingFolder.value}
+                  onChange={e => setCreatingFolder(prev => prev ? { ...prev, value: e.target.value } : prev)}
+                  onKeyDown={e => { if (e.key === 'Enter') commitCreateFolder(); if (e.key === 'Escape') setCreatingFolder(null) }}
+                  onBlur={commitCreateFolder}
+                  placeholder="اسم المجلد الفرعي…"
+                  className="flex-1 text-xs bg-[var(--surface)] border border-primary-400 rounded px-2 py-1 outline-none text-[var(--text)]"
+                />
+                <button onClick={commitCreateFolder} className="p-1 text-primary-500 hover:text-primary-700"><Check size={13} /></button>
+                <button onClick={() => setCreatingFolder(null)} className="p-1 text-[var(--muted)] hover:text-red-500"><X size={13} /></button>
+              </div>
+            )}
 
             {/* File list */}
             {!isCollapsed && (
@@ -254,18 +570,41 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
                     const isBusy = importing.has(key)
                     const supported = isSupported(fi.name)
                     const readable = canReadDirectly(fi.name)
+                    const editable = isEditable(fi.name)
                     const isOpenForAI = openFiles.has(fi.path)
+                    const isRenamingThis = renaming?.folder === folder.name && renaming.fi.path === fi.path
 
                     return (
                       <div key={fi.path}
-                        className={`flex items-center gap-2 px-3 py-1.5 group transition-colors ${isOpenForAI ? 'bg-emerald-50 dark:bg-emerald-900/10' : 'hover:bg-[var(--bg)]'}`}>
+                        className={`flex items-center gap-2 px-3 py-1.5 group transition-colors
+                          ${isOpenForAI ? 'bg-emerald-50 dark:bg-emerald-900/10' : 'hover:bg-[var(--bg)]'}`}>
                         <span className="text-sm shrink-0">{fileTypeIcon(fi.name)}</span>
                         <div className="flex-1 min-w-0">
-                          <p className={`text-xs font-medium truncate ${isOpenForAI ? 'text-emerald-700 dark:text-emerald-300' : 'text-[var(--text)]'}`} title={fi.path}>{fi.name}</p>
-                          {fi.path.includes('/') && (
-                            <p className="text-[10px] text-[var(--muted)] truncate">
-                              {fi.path.split('/').slice(0, -1).join('/')}
-                            </p>
+                          {isRenamingThis ? (
+                            <input
+                              ref={renameInputRef}
+                              value={renaming!.value}
+                              onChange={e => setRenaming(r => r ? { ...r, value: e.target.value } : r)}
+                              onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenaming(null) }}
+                              onBlur={commitRename}
+                              onClick={e => e.stopPropagation()}
+                              className="text-xs w-full bg-[var(--surface)] border border-primary-400 rounded px-1.5 py-0.5 outline-none text-[var(--text)]"
+                            />
+                          ) : (
+                            <>
+                              <p
+                                className={`text-xs font-medium truncate ${isOpenForAI ? 'text-emerald-700 dark:text-emerald-300' : 'text-[var(--text)]'}`}
+                                title={fi.path}
+                                onDoubleClick={() => setRenaming({ folder: folder.name, fi, value: fi.name })}
+                              >
+                                {fi.name}
+                              </p>
+                              {fi.path.includes('/') && (
+                                <p className="text-[10px] text-[var(--muted)] truncate">
+                                  {fi.path.split('/').slice(0, -1).join('/')}
+                                </p>
+                              )}
+                            </>
                           )}
                         </div>
                         <span className="text-[10px] text-[var(--muted)] shrink-0 hidden group-hover:inline">
@@ -273,54 +612,92 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
                         </span>
                         {isOpenForAI && (
                           <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 shrink-0 bg-emerald-100 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded">
-                            مفتوح للذكاء
+                            مفتوح
                           </span>
                         )}
+
+                        {/* Action buttons */}
                         <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {/* Open for AI */}
                           {readable && (
                             <button
-                              onClick={() => toggleOpenForAI(fi)}
-                              title={isOpenForAI ? 'إغلاق — لن يقرأ الذكاء الاصطناعي هذا الملف' : 'فتح للذكاء الاصطناعي — يقرأ محتواه مباشرةً بدون تحميل'}
+                              onClick={e => { e.stopPropagation(); toggleOpenForAI(fi) }}
+                              title={isOpenForAI ? 'إغلاق من الذكاء الاصطناعي' : 'فتح للذكاء الاصطناعي'}
                               className={`p-1 rounded transition-colors ${
                                 isOpenForAI
                                   ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
                                   : 'hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-[var(--muted)] hover:text-emerald-600'
                               }`}
                             >
-                              <BookOpen size={12} />
+                              <BookOpen size={11} />
                             </button>
                           )}
+                          {/* Edit */}
+                          {editable && (
+                            <button
+                              onClick={e => { e.stopPropagation(); setEditTarget({ folder: folder.name, fi }) }}
+                              title="تعديل المحتوى"
+                              className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30 text-[var(--muted)] hover:text-blue-600 transition-colors"
+                            >
+                              <FileEdit size={11} />
+                            </button>
+                          )}
+                          {/* Rename */}
+                          <button
+                            onClick={e => { e.stopPropagation(); setRenaming({ folder: folder.name, fi, value: fi.name }) }}
+                            title="إعادة التسمية"
+                            className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors"
+                          >
+                            <Pencil size={11} />
+                          </button>
+                          {/* Copy */}
+                          <button
+                            onClick={e => { e.stopPropagation(); setCopyMoveTarget({ mode: 'copy', folder: folder.name, fi }) }}
+                            title="نسخ الملف"
+                            className="p-1 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-[var(--muted)] hover:text-indigo-600 transition-colors"
+                          >
+                            <Copy size={11} />
+                          </button>
+                          {/* Move */}
+                          <button
+                            onClick={e => { e.stopPropagation(); setCopyMoveTarget({ mode: 'move', folder: folder.name, fi }) }}
+                            title="نقل الملف"
+                            className="p-1 rounded hover:bg-orange-100 dark:hover:bg-orange-900/30 text-[var(--muted)] hover:text-orange-600 transition-colors"
+                          >
+                            <MoveRight size={11} />
+                          </button>
+                          {/* Import */}
                           {supported && (
                             <>
                               <button
-                                onClick={() => importFile(folder.name, fi)}
+                                onClick={e => { e.stopPropagation(); importFile(folder.name, fi) }}
                                 disabled={isBusy}
-                                title="استيراد إلى المشروع (رفع دائم)"
+                                title="استيراد إلى المشروع"
                                 className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30
                                            text-[var(--muted)] hover:text-primary-600 transition-colors disabled:opacity-40"
                               >
-                                {isBusy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                                {isBusy ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
                               </button>
                               {onAnalyze && (
                                 <button
-                                  onClick={() => analyzeFile(folder.name, fi)}
+                                  onClick={e => { e.stopPropagation(); analyzeFile(folder.name, fi) }}
                                   disabled={isBusy}
                                   title="استيراد وتحليل بالذكاء الاصطناعي"
                                   className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30
                                              text-[var(--muted)] hover:text-blue-600 transition-colors disabled:opacity-40"
                                 >
-                                  <MessageSquare size={12} />
+                                  <MessageSquare size={11} />
                                 </button>
                               )}
                             </>
                           )}
+                          {/* Delete */}
                           <button
-                            onClick={() => setDeleteTarget({ folder: folder.name, fi })}
+                            onClick={e => { e.stopPropagation(); setDeleteTarget({ folder: folder.name, fi }) }}
                             title="حذف من المجلد"
-                            className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30
-                                       text-[var(--muted)] hover:text-red-600 transition-colors"
+                            className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-[var(--muted)] hover:text-red-600 transition-colors"
                           >
-                            <Trash2 size={12} />
+                            <Trash2 size={11} />
                           </button>
                         </div>
                       </div>
@@ -333,6 +710,7 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
         )
       })}
 
+      {/* Delete confirm */}
       <ConfirmModal
         open={!!deleteTarget}
         title="حذف الملف"
@@ -343,6 +721,30 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
         onCancel={() => setDeleteTarget(null)}
         onConfirm={confirmDelete}
       />
+
+      {/* Copy / Move modal */}
+      {copyMoveTarget && (
+        <CopyMoveModal
+          mode={copyMoveTarget.mode}
+          fi={copyMoveTarget.fi}
+          sourceFolderName={copyMoveTarget.folder}
+          grantedFolders={grantedFolders}
+          onClose={() => setCopyMoveTarget(null)}
+          onConfirm={(targetFolder, targetPath) =>
+            executeCopyMove(copyMoveTarget.mode, copyMoveTarget.folder, copyMoveTarget.fi, targetFolder, targetPath)
+          }
+        />
+      )}
+
+      {/* Edit modal */}
+      {editTarget && (
+        <EditModal
+          fi={editTarget.fi}
+          folderName={editTarget.folder}
+          onClose={() => setEditTarget(null)}
+          onSave={saveEdit}
+        />
+      )}
     </>
   )
 }
