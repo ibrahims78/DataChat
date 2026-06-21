@@ -11,6 +11,8 @@ import ChatInput from '../components/chat/ChatInput'
 import FileUploadModal from '../components/files/FileUploadModal'
 import { useFolderSyncContext } from '../contexts/FolderSyncContext'
 import { uploadChunked } from '../lib/uploadChunked'
+import { readFolderFileForAI } from '../lib/folderFileReader'
+import type { FileInfo } from '../lib/useFolderSync'
 
 interface Project {
   id: number; name: string; user_id: number
@@ -53,6 +55,9 @@ export default function ProjectPage() {
   const [showMobilePanel, setShowMobilePanel] = useState(false)
   const [queueCount, setQueueCount] = useState(0)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [openFolderFiles, setOpenFolderFiles] = useState<FileInfo[]>([])
+  const openFolderFilesRef = useRef<FileInfo[]>([])
+  useEffect(() => { openFolderFilesRef.current = openFolderFiles }, [openFolderFiles])
   const tempAiIdRef = useRef<number>(0)
 
   // Queue refs (useRef to avoid stale closures inside async functions)
@@ -175,13 +180,25 @@ export default function ProjectPage() {
       } catch {}
     }
 
+    // Read content of open folder files (no upload needed)
+    let folderFileContents: Array<{name: string; path: string; content: string; truncated: boolean}> = []
+    const openFiles = openFolderFilesRef.current
+    if (openFiles.length > 0) {
+      const results = await Promise.allSettled(
+        openFiles.map(fi => readFolderFileForAI(fi.fileHandle, fi.name, fi.path))
+      )
+      folderFileContents = results
+        .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+        .map(r => r.value)
+    }
+
     try {
       // ── Server-side SSE stream (Gemini / OpenAI) ──
       {
         const response = await fetch(`/api/chat/${projectIdRef.current}/message`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ message: content, conversationId: convId, folderFiles })
+          body: JSON.stringify({ message: content, conversationId: convId, folderFiles, folderFileContents })
         })
 
         if (response.status === 401) {
@@ -472,6 +489,7 @@ export default function ProjectPage() {
           onMobileClose={() => setShowMobilePanel(false)}
           onSyncAll={syncFolderToProject}
           isSyncing={isSyncing}
+          onFolderFilesOpen={setOpenFolderFiles}
         />
       </div>
 

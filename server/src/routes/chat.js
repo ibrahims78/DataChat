@@ -967,7 +967,7 @@ async function generateReportAsExcel(pdfData, filename) {
 
 router.post('/:projectId/message', async (req, res) => {
   try {
-    const { message, conversationId, folderFiles } = req.body
+    const { message, conversationId, folderFiles, folderFileContents } = req.body
     const projectCheck = await db.query('SELECT * FROM projects WHERE id=$1', [req.params.projectId])
     if (!projectCheck.rows.length) return res.status(404).json({ error: 'Project not found' })
     if (req.user.role !== 'admin' && projectCheck.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
@@ -1110,7 +1110,7 @@ router.post('/:projectId/message', async (req, res) => {
 
 ---
 
-${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة للتحليل:\n${fileContents}` : '') + (Array.isArray(folderFiles) && folderFiles.length > 0 ? `\n\n---\n## ملفات المجلد المرتبط (على جهاز المستخدم):\nالمجلد المرتبط يحتوي على الملفات التالية:\n${folderFiles.map((f, i) => `${i + 1}. ${f.path || f.name}${f.size ? ` (${Math.round(f.size / 1024)} KB)` : ''}`).join('\n')}\n\nيمكنك كتابة ملفات أو إنشاء مجلدات في هذا المجلد:\n- لإنشاء مجلد: [FOLDER_CREATE_DIR:مسار/المجلد]\n- لكتابة ملف نصي: [FOLDER_WRITE_FILE:مسار/الملف.txt|محتوى الملف هنا]\nاستخدم هذه الوسوم عند الحاجة فقط، وسيقوم التطبيق بتنفيذها تلقائياً.` : '')
+${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة للتحليل:\n${fileContents}` : '') + (Array.isArray(folderFiles) && folderFiles.length > 0 ? `\n\n---\n## ملفات المجلد المرتبط (على جهاز المستخدم):\nالمجلد المرتبط يحتوي على الملفات التالية:\n${folderFiles.map((f, i) => `${i + 1}. ${f.path || f.name}${f.size ? ` (${Math.round(f.size / 1024)} KB)` : ''}`).join('\n')}\n\nيمكنك كتابة ملفات أو إنشاء مجلدات في هذا المجلد:\n- لإنشاء مجلد: [FOLDER_CREATE_DIR:مسار/المجلد]\n- لكتابة ملف نصي: [FOLDER_WRITE_FILE:مسار/الملف.txt|محتوى الملف هنا]\nاستخدم هذه الوسوم عند الحاجة فقط، وسيقوم التطبيق بتنفيذها تلقائياً.` : '') + (Array.isArray(folderFileContents) && folderFileContents.length > 0 ? `\n\n---\n## محتوى ملفات المجلد المفتوحة للقراءة المباشرة:\nهذه الملفات مفتوحة من جهاز المستخدم مباشرةً بدون رفعها للمشروع. اقرأها وحللها كما لو كانت مرفوعة:\n\n${folderFileContents.map((fc) => `### [${fc.name}]${fc.truncated ? ' ⚠️ (محتوى مقتطع)' : ''}\n${fc.content}`).join('\n\n---\n\n')}` : '')
 
     const systemText = FILE_GEN_PROTOCOL
 

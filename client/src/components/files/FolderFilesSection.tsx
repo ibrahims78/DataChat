@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   FolderOpen, RefreshCw, Download, MessageSquare, Trash2,
-  ChevronDown, ChevronUp, Loader2, AlertCircle
+  ChevronDown, ChevronUp, Loader2, AlertCircle, BookOpen
 } from 'lucide-react'
 import { useFolderSyncContext } from '../../contexts/FolderSyncContext'
 import type { FileInfo } from '../../lib/useFolderSync'
 import { uploadChunked } from '../../lib/uploadChunked'
+import { canReadDirectly } from '../../lib/folderFileReader'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../ui/ConfirmModal'
 
@@ -13,6 +14,7 @@ interface Props {
   projectId: number
   onRefresh: () => void
   onAnalyze?: (msg: string) => void
+  onOpenFilesChange?: (files: FileInfo[]) => void
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -48,7 +50,7 @@ function isSupported(name: string): boolean {
 }
 
 // ── component ─────────────────────────────────────────────────────────────────
-export default function FolderFilesSection({ projectId, onRefresh, onAnalyze }: Props) {
+export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, onOpenFilesChange }: Props) {
   const { folders, listFiles, deleteFile } = useFolderSyncContext()
   const grantedFolders = folders.filter(f => f.perm === 'granted')
 
@@ -58,6 +60,24 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze }: 
   const [importing, setImporting] = useState<Set<string>>(new Set())
   const [importingAll, setImportingAll] = useState<Set<string>>(new Set())
   const [deleteTarget, setDeleteTarget] = useState<{ folder: string; fi: FileInfo } | null>(null)
+  const [openFiles, setOpenFiles] = useState<Set<string>>(new Set())  // paths open for AI reading
+
+  const allFiles = Object.values(filesByFolder).flat()
+
+  const toggleOpenForAI = useCallback((fi: FileInfo) => {
+    setOpenFiles(prev => {
+      const next = new Set(prev)
+      if (next.has(fi.path)) next.delete(fi.path)
+      else next.add(fi.path)
+      return next
+    })
+  }, [])
+
+  // Notify parent when open files change
+  useEffect(() => {
+    const openFileInfos = allFiles.filter(f => openFiles.has(f.path))
+    onOpenFilesChange?.(openFileInfos)
+  }, [openFiles, JSON.stringify(allFiles.map(f => f.path))])
 
   const loadRef = useRef(listFiles)
   useEffect(() => { loadRef.current = listFiles }, [listFiles])
@@ -151,8 +171,24 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze }: 
 
   if (!grantedFolders.length) return null
 
+  const totalOpen = openFiles.size
+
   return (
     <>
+      {totalOpen > 0 && (
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+          <BookOpen size={12} className="text-emerald-600 shrink-0" />
+          <span className="text-[11px] text-emerald-700 dark:text-emerald-300 flex-1">
+            {totalOpen} {totalOpen === 1 ? 'ملف مفتوح' : 'ملفات مفتوحة'} للذكاء الاصطناعي — يقرأ محتواها مع كل رسالة
+          </span>
+          <button
+            onClick={() => setOpenFiles(new Set())}
+            className="text-[10px] text-emerald-600 hover:text-emerald-800 underline shrink-0"
+          >
+            إغلاق الكل
+          </button>
+        </div>
+      )}
       {grantedFolders.map(folder => {
         const files = filesByFolder[folder.name] || []
         const isLoading = loadingFolders.has(folder.name)
@@ -217,13 +253,15 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze }: 
                     const key = `${folder.name}:${fi.path}`
                     const isBusy = importing.has(key)
                     const supported = isSupported(fi.name)
+                    const readable = canReadDirectly(fi.name)
+                    const isOpenForAI = openFiles.has(fi.path)
 
                     return (
                       <div key={fi.path}
-                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-[var(--bg)] group transition-colors">
+                        className={`flex items-center gap-2 px-3 py-1.5 group transition-colors ${isOpenForAI ? 'bg-emerald-50 dark:bg-emerald-900/10' : 'hover:bg-[var(--bg)]'}`}>
                         <span className="text-sm shrink-0">{fileTypeIcon(fi.name)}</span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-[var(--text)] truncate" title={fi.path}>{fi.name}</p>
+                          <p className={`text-xs font-medium truncate ${isOpenForAI ? 'text-emerald-700 dark:text-emerald-300' : 'text-[var(--text)]'}`} title={fi.path}>{fi.name}</p>
                           {fi.path.includes('/') && (
                             <p className="text-[10px] text-[var(--muted)] truncate">
                               {fi.path.split('/').slice(0, -1).join('/')}
@@ -233,13 +271,31 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze }: 
                         <span className="text-[10px] text-[var(--muted)] shrink-0 hidden group-hover:inline">
                           {formatSize(fi.size)}
                         </span>
+                        {isOpenForAI && (
+                          <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 shrink-0 bg-emerald-100 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded">
+                            مفتوح للذكاء
+                          </span>
+                        )}
                         <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {readable && (
+                            <button
+                              onClick={() => toggleOpenForAI(fi)}
+                              title={isOpenForAI ? 'إغلاق — لن يقرأ الذكاء الاصطناعي هذا الملف' : 'فتح للذكاء الاصطناعي — يقرأ محتواه مباشرةً بدون تحميل'}
+                              className={`p-1 rounded transition-colors ${
+                                isOpenForAI
+                                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
+                                  : 'hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-[var(--muted)] hover:text-emerald-600'
+                              }`}
+                            >
+                              <BookOpen size={12} />
+                            </button>
+                          )}
                           {supported && (
                             <>
                               <button
                                 onClick={() => importFile(folder.name, fi)}
                                 disabled={isBusy}
-                                title="استيراد إلى المشروع"
+                                title="استيراد إلى المشروع (رفع دائم)"
                                 className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30
                                            text-[var(--muted)] hover:text-primary-600 transition-colors disabled:opacity-40"
                               >
@@ -250,8 +306,8 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze }: 
                                   onClick={() => analyzeFile(folder.name, fi)}
                                   disabled={isBusy}
                                   title="استيراد وتحليل بالذكاء الاصطناعي"
-                                  className="p-1 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/30
-                                             text-[var(--muted)] hover:text-emerald-600 transition-colors disabled:opacity-40"
+                                  className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30
+                                             text-[var(--muted)] hover:text-blue-600 transition-colors disabled:opacity-40"
                                 >
                                   <MessageSquare size={12} />
                                 </button>
