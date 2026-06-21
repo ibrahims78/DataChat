@@ -13,6 +13,7 @@ import { useFolderSyncContext } from '../contexts/FolderSyncContext'
 import { uploadChunked } from '../lib/uploadChunked'
 import { readFolderFileForAI } from '../lib/folderFileReader'
 import type { FileInfo } from '../lib/useFolderSync'
+import { generateDocxFromMarkdown } from '../lib/folderDocxWriter'
 
 interface Project {
   id: number; name: string; user_id: number
@@ -262,6 +263,16 @@ export default function ProjectPage() {
                   const result = await writeFileContentRef.current(fname, data.path, data.content || '', mime)
                   if (result === 'saved') toast.success(`✅ تم كتابة "${data.path}" في المجلد المرتبط`)
                   else if (result !== 'no_folder') toast.error(`فشل كتابة الملف "${data.path}"`)
+                } else if (data.action === 'write_docx' && data.path) {
+                  try {
+                    const blob = await generateDocxFromMarkdown(data.content || '')
+                    const fname = primaryFolderRef.current?.name || ''
+                    const result = await writeFileContentRef.current(fname, data.path, blob, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                    if (result === 'saved') toast.success(`✅ تم كتابة "${data.path}" (Word) في المجلد المرتبط`)
+                    else if (result !== 'no_folder') toast.error(`فشل كتابة ملف Word "${data.path}"`)
+                  } catch (e: any) {
+                    toast.error(`خطأ في إنشاء ملف Word: ${e?.message || 'غير معروف'}`)
+                  }
                 }
               } else if (data.type === 'done') {
                 if (data.generatedFile) {

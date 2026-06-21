@@ -1110,7 +1110,7 @@ router.post('/:projectId/message', async (req, res) => {
 
 ---
 
-${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة للتحليل:\n${fileContents}` : '') + (Array.isArray(folderFiles) && folderFiles.length > 0 ? `\n\n---\n## ملفات المجلد المرتبط (على جهاز المستخدم):\nالمجلد المرتبط يحتوي على الملفات التالية:\n${folderFiles.map((f, i) => `${i + 1}. ${f.path || f.name}${f.size ? ` (${Math.round(f.size / 1024)} KB)` : ''}`).join('\n')}\n\nيمكنك كتابة ملفات أو إنشاء مجلدات في هذا المجلد:\n- لإنشاء مجلد: [FOLDER_CREATE_DIR:مسار/المجلد]\n- لكتابة ملف نصي: [FOLDER_WRITE_FILE:مسار/الملف.txt|محتوى الملف هنا]\nاستخدم هذه الوسوم عند الحاجة فقط، وسيقوم التطبيق بتنفيذها تلقائياً.` : '') + (Array.isArray(folderFileContents) && folderFileContents.length > 0 ? `\n\n---\n## محتوى ملفات المجلد المفتوحة للقراءة المباشرة:\nهذه الملفات مفتوحة من جهاز المستخدم مباشرةً بدون رفعها للمشروع. اقرأها وحللها كما لو كانت مرفوعة:\n\n${folderFileContents.map((fc) => `### [${fc.name}]${fc.truncated ? ' ⚠️ (محتوى مقتطع)' : ''}\n${fc.content}`).join('\n\n---\n\n')}` : '')
+${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة للتحليل:\n${fileContents}` : '') + (Array.isArray(folderFiles) && folderFiles.length > 0 ? `\n\n---\n## ملفات المجلد المرتبط (على جهاز المستخدم):\nالمجلد المرتبط يحتوي على الملفات التالية:\n${folderFiles.map((f, i) => `${i + 1}. ${f.path || f.name}${f.size ? ` (${Math.round(f.size / 1024)} KB)` : ''}`).join('\n')}\n\nيمكنك كتابة ملفات أو إنشاء مجلدات في هذا المجلد:\n- لإنشاء مجلد: [FOLDER_CREATE_DIR:مسار/المجلد]\n- لكتابة ملف نصي/كود: [FOLDER_WRITE_FILE:مسار/الملف.txt|محتوى الملف هنا]\n- لكتابة أو تعديل ملف Word (DOCX) مباشرةً في المجلد: [FOLDER_WRITE_DOCX:مسار/الملف.docx|اكتب المحتوى هنا بصيغة Markdown][/FOLDER_WRITE_DOCX]\nاستخدم هذه الوسوم عند الحاجة فقط، وسيقوم التطبيق بتنفيذها تلقائياً.` : '') + (Array.isArray(folderFileContents) && folderFileContents.length > 0 ? `\n\n---\n## محتوى ملفات المجلد المفتوحة للقراءة المباشرة:\nهذه الملفات مفتوحة من جهاز المستخدم مباشرةً بدون رفعها للمشروع. اقرأها وحللها كما لو كانت مرفوعة:\n\n${folderFileContents.filter(fc => !fc.isImage).map((fc) => `### [${fc.name}]${fc.truncated ? ' ⚠️ (محتوى مقتطع)' : ''}\n${fc.content}`).join('\n\n---\n\n')}${folderFileContents.some(fc => fc.isImage) ? `\n\n### الصور المرفقة:\n${folderFileContents.filter(fc => fc.isImage).map(fc => `- ${fc.name} (${fc.mimeType}) — مرسلة كـ inline_data في هذه الرسالة، انظر إليها مباشرةً وصفها وحللها.`).join('\n')}` : ''}` : '')
 
     const systemText = FILE_GEN_PROTOCOL
 
@@ -1199,7 +1199,16 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       }))
       const chat = model.startChat({ history: chatHistory })
       try {
-        const result = await chat.sendMessageStream(message)
+        // Build message parts — add images as inline_data for multimodal
+        const imageParts = Array.isArray(folderFileContents)
+          ? folderFileContents
+              .filter(fc => fc.isImage && fc.base64 && fc.mimeType)
+              .map(fc => ({ inlineData: { mimeType: fc.mimeType, data: fc.base64 } }))
+          : []
+        const messageParts = imageParts.length > 0
+          ? [{ text: message }, ...imageParts]
+          : message
+        const result = await chat.sendMessageStream(messageParts)
         for await (const chunk of result.stream) {
           const text = chunk.text()
           fullResponse += text
@@ -1609,7 +1618,9 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
     }
 
     // ── Folder action tags ────────────────────────────────────────────────────
-    if (Array.isArray(folderFiles) && folderFiles.length > 0) {
+    const hasFolderContext = (Array.isArray(folderFiles) && folderFiles.length > 0)
+                          || (Array.isArray(folderFileContents) && folderFileContents.length > 0)
+    if (hasFolderContext) {
       // Handle [FOLDER_CREATE_DIR:path] tags
       const createDirRegex = /\[FOLDER_CREATE_DIR:([^\]]+)\]/g
       let m
@@ -1621,14 +1632,24 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       cleanResponse = cleanResponse.replace(/\[FOLDER_CREATE_DIR:[^\]]+\]/g, '').trim()
 
       // Handle [FOLDER_WRITE_FILE:path|content] tags
-      const writeFileRegex = /\[FOLDER_WRITE_FILE:([^|]+)\|([^\]]*)\]/g
+      const writeFileRegex = /\[FOLDER_WRITE_FILE:([^|]+)\|([\s\S]*?)\](?=\n|$)/g
       while ((m = writeFileRegex.exec(cleanResponse)) !== null) {
         const filePath = m[1].trim()
         const content = m[2]
         res.write(`data: ${JSON.stringify({ type: 'folder_action', action: 'write_file', path: filePath, content })}\n\n`)
         console.log(`[FOLDER] write_file: ${filePath}`)
       }
-      cleanResponse = cleanResponse.replace(/\[FOLDER_WRITE_FILE:[^|]+\|[^\]]*\]/g, '').trim()
+      cleanResponse = cleanResponse.replace(/\[FOLDER_WRITE_FILE:[^|]+\|[\s\S]*?\](?=\n|$)/g, '').trim()
+
+      // Handle [FOLDER_WRITE_DOCX:path|markdown_content] tags
+      const writeDocxRegex = /\[FOLDER_WRITE_DOCX:([^|]+)\|([\s\S]*?)\[\/FOLDER_WRITE_DOCX\]/g
+      while ((m = writeDocxRegex.exec(cleanResponse)) !== null) {
+        const filePath = m[1].trim()
+        const content = m[2]
+        res.write(`data: ${JSON.stringify({ type: 'folder_action', action: 'write_docx', path: filePath, content })}\n\n`)
+        console.log(`[FOLDER] write_docx: ${filePath}`)
+      }
+      cleanResponse = cleanResponse.replace(/\[FOLDER_WRITE_DOCX:[^|]+\|[\s\S]*?\[\/FOLDER_WRITE_DOCX\]/g, '').trim()
     }
 
     await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [req.params.projectId])
