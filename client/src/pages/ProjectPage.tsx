@@ -397,6 +397,7 @@ export default function ProjectPage() {
           projectId={project.id}
           onRefresh={fetchProject}
           onUpload={() => setShowUpload(true)}
+          onBatchAnalyze={(msg) => sendMessage(msg)}
           mobileOpen={showMobilePanel}
           onMobileClose={() => setShowMobilePanel(false)}
         />

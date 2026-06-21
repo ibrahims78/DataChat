@@ -10,6 +10,8 @@ import api from '../../lib/api'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../ui/ConfirmModal'
 import FolderSyncSection from './FolderSyncSection'
+import FolderImportModal from './FolderImportModal'
+import FolderCapabilitiesModal from './FolderCapabilitiesModal'
 
 interface FolderItem { id: number; name: string; sort_order: number }
 interface FileItem {
@@ -28,6 +30,7 @@ interface Props {
   projectId: number
   onRefresh: () => void
   onUpload: () => void
+  onBatchAnalyze?: (msg: string) => void
   mobileOpen?: boolean
   onMobileClose?: () => void
 }
@@ -46,9 +49,11 @@ function fileName(f: FileItem | GenFile) {
   return f.display_name || f.original_name
 }
 
-export default function FilePanel({ files, generatedFiles, folders, projectId, onRefresh, onUpload, mobileOpen = false, onMobileClose }: Props) {
+export default function FilePanel({ files, generatedFiles, folders, projectId, onRefresh, onUpload, onBatchAnalyze, mobileOpen = false, onMobileClose }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [collapsedFolders, setCollapsedFolders] = useState<Set<number>>(new Set())
+  const [importFolder, setImportFolder] = useState<string | null>(null)
+  const [showCapabilities, setShowCapabilities] = useState(false)
 
   // Rename state
   const [renaming, setRenaming] = useState<{ type: 'file' | 'gen' | 'folder'; id: number; value: string } | null>(null)
@@ -429,7 +434,12 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
         </div>
 
       {/* Folder sync section */}
-      <FolderSyncSection />
+      <FolderSyncSection
+        projectId={projectId}
+        onRefresh={onRefresh}
+        onOpenImport={setImportFolder}
+        onOpenCapabilities={() => setShowCapabilities(true)}
+      />
 
       <div className="flex-1 overflow-y-auto p-2 space-y-3">
 
@@ -572,6 +582,22 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
         onCancel={() => setDeleteTarget(null)}
         onConfirm={confirmDelete}
       />
+
+      {/* Folder import modal */}
+      {importFolder && (
+        <FolderImportModal
+          projectId={projectId}
+          folderName={importFolder}
+          onClose={() => setImportFolder(null)}
+          onRefresh={onRefresh}
+          onBatchAnalyze={onBatchAnalyze}
+        />
+      )}
+
+      {/* Folder capabilities modal */}
+      {showCapabilities && (
+        <FolderCapabilitiesModal onClose={() => setShowCapabilities(false)} />
+      )}
 
       {/* File preview modal */}
       {previewFile && (
