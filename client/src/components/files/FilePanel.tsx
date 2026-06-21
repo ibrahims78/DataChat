@@ -13,6 +13,7 @@ import FolderSyncSection from './FolderSyncSection'
 import FolderFilesSection from './FolderFilesSection'
 import FolderImportModal from './FolderImportModal'
 import FolderCapabilitiesModal from './FolderCapabilitiesModal'
+import FileTypeIcon from '../ui/FileTypeIcon'
 
 interface FolderItem { id: number; name: string; sort_order: number }
 interface FileItem {
@@ -39,8 +40,6 @@ interface Props {
   onFolderFilesOpen?: (files: any[]) => void
 }
 
-const typeIcons: Record<string, string> = { excel: '📊', csv: '📋', pdf: '📄', word: '📝', html: '🌐', markdown: '📑', text: '📃', json: '🗂️' }
-const genTypeIcons: Record<string, string> = { excel: '📊', pdf: '📄', html: '🌐', markdown: '📑', text: '📃', json: '🗂️' }
 
 function formatSize(bytes: number) {
   if (!bytes) return ''
@@ -282,7 +281,7 @@ export default function FilePanel({
         <span className="text-[var(--muted)] cursor-grab active:cursor-grabbing shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           <GripVertical size={12} />
         </span>
-        <span className="text-base shrink-0">{typeIcons[f.file_type] || '📎'}</span>
+        <FileTypeIcon type={f.file_type} size="sm" />
         <div className="flex-1 min-w-0">
           {isRenamingThis ? (
             <input
@@ -355,7 +354,7 @@ export default function FilePanel({
         <span className="text-[var(--muted)] cursor-grab active:cursor-grabbing shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           <GripVertical size={12} />
         </span>
-        <span className="text-base shrink-0">{genTypeIcons[f.file_type] || '📎'}</span>
+        <FileTypeIcon type={f.file_type} size="sm" generated />
         <div className="flex-1 min-w-0">
           {isRenamingThis ? (
             <input
@@ -407,10 +406,10 @@ export default function FilePanel({
 
       {/* New folder trigger */}
       <div className="flex items-center justify-between px-1">
-        <span className="text-[11px] font-semibold text-[var(--muted)] uppercase tracking-wide">المجلدات والملفات</span>
+        <span className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide">المجلدات والملفات</span>
         <button
           onClick={() => setCreatingFolder(true)}
-          className="flex items-center gap-1 text-[11px] text-[var(--muted)] hover:text-primary-600 transition-colors px-1 py-0.5 rounded"
+          className="flex items-center gap-1 text-xs text-[var(--muted)] hover:text-primary-600 transition-colors px-1 py-0.5 rounded"
           title="إنشاء مجلد جديد في المشروع"
         >
           <FolderPlus size={13} />
@@ -563,7 +562,7 @@ export default function FilePanel({
             <Sparkles size={22} className="text-[var(--muted)]" />
           </div>
           <p className="text-xs text-[var(--muted)]">لا توجد ملفات مُولَّدة بعد</p>
-          <p className="text-[11px] text-[var(--muted)] mt-1 opacity-70">اطلب من الذكاء الاصطناعي إنشاء ملف Excel أو PDF أو HTML</p>
+          <p className="text-xs text-[var(--muted)] mt-1 opacity-70">اطلب من الذكاء الاصطناعي إنشاء ملف Excel أو PDF أو HTML</p>
         </div>
       ) : (
         <div className="space-y-0.5">
@@ -598,7 +597,7 @@ export default function FilePanel({
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 flex items-center justify-center gap-1 py-2 text-[11px] font-medium transition-colors relative
+            className={`flex-1 flex items-center justify-center gap-1 py-2 text-xs font-medium transition-colors relative
               ${activeTab === tab.id
                 ? 'text-primary-600 dark:text-primary-400'
                 : 'text-[var(--muted)] hover:text-[var(--text)]'}`}
@@ -606,7 +605,7 @@ export default function FilePanel({
             {tab.icon}
             <span className="hidden sm:inline truncate">{tab.id === 'project' ? 'ملفات' : tab.id === 'linked' ? 'مرتبطة' : 'مُولَّدة'}</span>
             {tab.badge !== undefined && tab.badge > 0 && (
-              <span className={`text-[10px] px-1 rounded-full font-bold
+              <span className={`text-[11px] px-1 rounded-full font-bold
                 ${activeTab === tab.id ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-600' : 'bg-[var(--border)] text-[var(--muted)]'}`}>
                 {tab.badge}
               </span>

@@ -11,6 +11,7 @@ import { uploadChunked } from '../../lib/uploadChunked'
 import { canReadDirectly } from '../../lib/folderFileReader'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../ui/ConfirmModal'
+import FileTypeIcon from '../ui/FileTypeIcon'
 
 interface Props {
   projectId: number
@@ -19,18 +20,18 @@ interface Props {
   onOpenFilesChange?: (files: FileInfo[]) => void
 }
 
-function fileTypeIcon(name: string): string {
+function getExtType(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() || ''
-  if (['xlsx', 'xlsm', 'xls'].includes(ext)) return '📊'
-  if (ext === 'csv') return '📋'
-  if (ext === 'pdf') return '📄'
-  if (['doc', 'docx'].includes(ext)) return '📝'
-  if (['htm', 'html'].includes(ext)) return '🌐'
-  if (ext === 'md') return '📑'
-  if (ext === 'json') return '🗂️'
-  if (['txt', 'log'].includes(ext)) return '📃'
-  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'heic', 'heif'].includes(ext)) return '🖼️'
-  return '📎'
+  if (['xlsx', 'xlsm', 'xls'].includes(ext)) return 'excel'
+  if (ext === 'csv') return 'csv'
+  if (ext === 'pdf') return 'pdf'
+  if (['doc', 'docx'].includes(ext)) return 'word'
+  if (['htm', 'html'].includes(ext)) return 'html'
+  if (ext === 'md') return 'markdown'
+  if (ext === 'json') return 'json'
+  if (['txt', 'log'].includes(ext)) return 'text'
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'heic', 'heif'].includes(ext)) return 'image'
+  return 'default'
 }
 
 function formatSize(bytes: number): string {
@@ -550,7 +551,7 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
                         className={`relative flex items-center gap-2 px-3 py-1.5 group transition-colors
                           ${isOpenForAI ? 'bg-emerald-50 dark:bg-emerald-900/10' : 'hover:bg-[var(--bg)]'}`}>
 
-                        <span className="text-sm shrink-0">{fileTypeIcon(fi.name)}</span>
+                        <FileTypeIcon type={getExtType(fi.name)} size="sm" />
 
                         {/* File name / rename input */}
                         <div className="flex-1 min-w-0">

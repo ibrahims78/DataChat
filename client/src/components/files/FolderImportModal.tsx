@@ -4,6 +4,7 @@ import {
   CheckCircle, AlertCircle, Clock, FolderOpen,
   Zap, Filter, ChevronDown
 } from 'lucide-react'
+import FileTypeIcon from '../ui/FileTypeIcon'
 import { useFolderSyncContext } from '../../contexts/FolderSyncContext'
 import { uploadChunked } from '../../lib/uploadChunked'
 import { uploadStarted, uploadFinished } from '../../lib/api'
@@ -36,15 +37,20 @@ const ACCEPTED_EXTS = new Set([
   '.md', '.txt', '.json', '.html', '.htm',
   '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.heic', '.heif',
 ])
-const FILE_ICONS: Record<string, string> = {
-  xlsx: '📊', xlsm: '📊', xls: '📊', csv: '📋',
-  pdf: '📄', docx: '📝', doc: '📝', md: '📑',
-  txt: '📃', json: '🗂️', html: '🌐', htm: '🌐',
-  jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️',
-  webp: '🖼️', bmp: '🖼️', tiff: '🖼️', tif: '🖼️', heic: '🖼️', heif: '🖼️',
-}
 function ext(name: string) { return name.split('.').pop()?.toLowerCase() ?? '' }
-function icon(name: string) { return FILE_ICONS[ext(name)] ?? '📎' }
+function extToType(name: string): string {
+  const e = ext(name)
+  if (['xlsx','xlsm','xls'].includes(e)) return 'excel'
+  if (e === 'csv') return 'csv'
+  if (e === 'pdf') return 'pdf'
+  if (['doc','docx'].includes(e)) return 'word'
+  if (['html','htm'].includes(e)) return 'html'
+  if (e === 'md') return 'markdown'
+  if (e === 'json') return 'json'
+  if (['txt','log'].includes(e)) return 'text'
+  if (['jpg','jpeg','png','gif','webp','bmp','tiff','tif','heic','heif'].includes(e)) return 'image'
+  return 'default'
+}
 function fmtSize(b: number) {
   if (b < 1024) return b + ' B'
   if (b < 1048576) return (b / 1024).toFixed(1) + ' KB'
@@ -254,7 +260,7 @@ export default function FolderImportModal({ projectId, folderName, onClose, onRe
                       </div>
                       <input type="checkbox" checked={item.selected}
                         onChange={() => toggleItem(item.info.path)} className="hidden" />
-                      <span className="text-lg leading-none shrink-0">{icon(item.info.name)}</span>
+                      <FileTypeIcon type={extToType(item.info.name)} size="sm" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-[var(--text)] truncate" title={item.info.path}>
                           {item.info.name}
@@ -284,7 +290,7 @@ export default function FolderImportModal({ projectId, folderName, onClose, onRe
                   className={`flex items-center gap-3 px-4 py-2.5 transition-colors
                     ${item.status === 'done'  ? 'bg-green-50/50 dark:bg-green-900/10' : ''}
                     ${item.status === 'error' ? 'bg-red-50/50 dark:bg-red-900/10' : ''}`}>
-                  <span className="text-lg leading-none shrink-0">{icon(item.info.name)}</span>
+                  <FileTypeIcon type={extToType(item.info.name)} size="sm" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-[var(--text)] truncate">{item.info.name}</p>
                     <div className="flex items-center gap-2 mt-1">

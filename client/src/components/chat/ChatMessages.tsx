@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Copy, Check, ThumbsUp, ThumbsDown, Edit2, Bot } from 'lucide-react'
+import { Copy, Check, ThumbsUp, ThumbsDown, Edit2, Sparkles } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useTheme } from '../../contexts/ThemeContext'
@@ -10,6 +10,7 @@ import api from '../../lib/api'
 import toast from 'react-hot-toast'
 import PdfPageViewer from './PdfPageViewer'
 import ContentPreview from './ContentPreview'
+import { useAuth } from '../../contexts/AuthContext'
 
 interface Message { id: number; role: string; content: string; created_at: string; rating?: number; pending?: boolean }
 interface PagePreview { fileUrl: string; page: number; filename: string }
@@ -50,10 +51,28 @@ function parseContentPreview(content: string): { cp: ContentPreviewData | null; 
   }
 }
 
+function UserAvatar({ name }: { name?: string }) {
+  const initials = name ? name.trim().charAt(0).toUpperCase() : 'أ'
+  return (
+    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center shrink-0 shadow-sm">
+      <span className="text-white text-xs font-bold">{initials}</span>
+    </div>
+  )
+}
+
+function AiAvatar() {
+  return (
+    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center shrink-0 shadow-sm">
+      <Sparkles size={15} className="text-white" strokeWidth={2} />
+    </div>
+  )
+}
+
 export default function ChatMessages({ messages, isTyping, typingStep, projectId, onMessageUpdated, hasFiles, messagePreviews = {}, contentPreviews = {} }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const { lang } = useTheme()
   const tr = useT(lang)
+  const { user } = useAuth()
   const [copied, setCopied] = useState<number | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editContent, setEditContent] = useState('')
@@ -88,8 +107,8 @@ export default function ChatMessages({ messages, isTyping, typingStep, projectId
   if (messages.length === 0 && !isTyping) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center mb-4">
-          <Bot size={32} className="text-primary-600" />
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center mb-4 shadow-md">
+          <Sparkles size={30} className="text-white" />
         </div>
         <h2 className="text-lg font-bold text-[var(--text)] mb-2">
           {hasFiles ? tr('chatReady') : tr('welcomeTitle')}
@@ -101,7 +120,7 @@ export default function ChatMessages({ messages, isTyping, typingStep, projectId
         {hasFiles && (
           <div className="space-y-2 text-sm">
             {['ما مجموع المبيعات الكلي؟', 'اعرض لي أعلى 5 قيم', 'أنشئ ملف Excel بالملخص'].map((q, i) => (
-              <div key={i} className="px-4 py-2 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 rounded-xl text-xs">{q}</div>
+              <div key={i} className="px-4 py-2.5 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 rounded-xl text-sm border border-primary-100 dark:border-primary-800/50 cursor-default">{q}</div>
             ))}
           </div>
         )}
@@ -131,7 +150,7 @@ export default function ChatMessages({ messages, isTyping, typingStep, projectId
             )}
 
             {msg.role === 'user' ? (
-              <div className="flex justify-end gap-2 group">
+              <div className="flex justify-end items-end gap-2 group">
                 <div className="max-w-[75%]">
                   {editingId === msg.id ? (
                     <div className="space-y-2">
@@ -143,11 +162,11 @@ export default function ChatMessages({ messages, isTyping, typingStep, projectId
                     </div>
                   ) : (
                     <div className={`chat-bubble-user ${msg.pending ? 'opacity-60' : ''}`}>
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                      <p className="text-xs text-white/70 mt-1 text-start flex items-center gap-1">
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap text-[var(--text)]">{msg.content}</p>
+                      <p className="text-xs text-[var(--muted)] mt-1 text-start flex items-center gap-1">
                         {msg.pending ? (
                           <>
-                            <span className="inline-block w-2.5 h-2.5 border-2 border-white/60 border-t-transparent rounded-full animate-spin" />
+                            <span className="inline-block w-2.5 h-2.5 border-2 border-[var(--primary)]/60 border-t-transparent rounded-full animate-spin" />
                             <span>في الانتظار...</span>
                           </>
                         ) : (
@@ -157,16 +176,20 @@ export default function ChatMessages({ messages, isTyping, typingStep, projectId
                     </div>
                   )}
                 </div>
-                <button onClick={() => { setEditingId(msg.id); setEditContent(msg.content) }}
-                  className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-all self-start mt-1">
-                  <Edit2 size={14} />
-                </button>
+                <div className="flex flex-col items-center gap-1">
+                  <button
+                    onClick={() => { setEditingId(msg.id); setEditContent(msg.content) }}
+                    className="icon-btn opacity-0 group-hover:opacity-100 transition-all"
+                    title="تعديل"
+                  >
+                    <Edit2 size={13} />
+                  </button>
+                  <UserAvatar name={(user as any)?.name} />
+                </div>
               </div>
             ) : (
-              <div className="flex gap-3 group">
-                <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center shrink-0 mt-1">
-                  <Bot size={16} className="text-white" />
-                </div>
+              <div className="flex gap-2.5 group">
+                <AiAvatar />
                 <div className="flex-1 min-w-0">
                   {(() => {
                     const sessionPreview = messagePreviews[msg.id]
@@ -175,46 +198,36 @@ export default function ChatMessages({ messages, isTyping, typingStep, projectId
                     const sessionCp = contentPreviews[msg.id]
                     const { cp: storedCp, cleanContent } = parseContentPreview(cleanAfterPage)
                     const cp = sessionCp || storedCp
-                    // Always use fully-cleaned content — avoids showing raw markers when DB messages reload
                     const displayContent = cleanContent
                     return (
-                  <div className="chat-bubble-ai">
-                    <div className="prose prose-sm max-w-none dark:prose-invert text-[var(--text)] text-sm">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent}</ReactMarkdown>
-                    </div>
-                    {preview && (
-                      <PdfPageViewer
-                        fileUrl={preview.fileUrl}
-                        page={preview.page}
-                        filename={preview.filename}
-                      />
-                    )}
-                    {cp && (
-                      <ContentPreview
-                        html={cp.html}
-                        previewType={cp.previewType}
-                        filename={cp.filename}
-                      />
-                    )}
-                    <p className="text-xs text-[var(--muted)] mt-2">
-                      {format(new Date(msg.created_at), 'HH:mm')}
-                    </p>
-                  </div>
+                      <div className="chat-bubble-ai">
+                        <div className="prose prose-sm max-w-none dark:prose-invert text-[var(--text)] text-sm">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent}</ReactMarkdown>
+                        </div>
+                        {preview && (
+                          <PdfPageViewer fileUrl={preview.fileUrl} page={preview.page} filename={preview.filename} />
+                        )}
+                        {cp && (
+                          <ContentPreview html={cp.html} previewType={cp.previewType} filename={cp.filename} />
+                        )}
+                        <p className="text-xs text-[var(--muted)] mt-2">
+                          {format(new Date(msg.created_at), 'HH:mm')}
+                        </p>
+                      </div>
                     )
                   })()}
 
-                  <div className="flex items-center gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => copyText(msg.id, msg.content)}
-                      className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors">
-                      {copied === msg.id ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                  <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => copyText(msg.id, msg.content)} className="icon-btn" title="نسخ">
+                      {copied === msg.id ? <Check size={13} className="text-green-500" /> : <Copy size={13} />}
                     </button>
                     <button onClick={() => rate(msg.id, 1)}
-                      className={`p-1.5 rounded-lg hover:bg-[var(--bg)] transition-colors ${msg.rating === 1 ? 'text-green-500' : 'text-[var(--muted)]'}`}>
-                      <ThumbsUp size={14} />
+                      className={`icon-btn ${msg.rating === 1 ? 'text-green-500' : ''}`} title="إجابة جيدة">
+                      <ThumbsUp size={13} />
                     </button>
                     <button onClick={() => rate(msg.id, -1)}
-                      className={`p-1.5 rounded-lg hover:bg-[var(--bg)] transition-colors ${msg.rating === -1 ? 'text-red-500' : 'text-[var(--muted)]'}`}>
-                      <ThumbsDown size={14} />
+                      className={`icon-btn ${msg.rating === -1 ? 'text-red-500' : ''}`} title="إجابة سيئة">
+                      <ThumbsDown size={13} />
                     </button>
                   </div>
 
@@ -233,13 +246,11 @@ export default function ChatMessages({ messages, isTyping, typingStep, projectId
       })}
 
       {isTyping && (
-        <div className="flex gap-3 animate-fade-in">
-          <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center shrink-0">
-            <Bot size={16} className="text-white" />
-          </div>
-          <div className="chat-bubble-ai flex items-center gap-2">
+        <div className="flex gap-2.5 animate-fade-in">
+          <AiAvatar />
+          <div className="chat-bubble-ai flex items-center gap-3">
             <div className="flex gap-1">
-              {[0,1,2].map(i => (
+              {[0, 1, 2].map(i => (
                 <div key={i} className="w-2 h-2 rounded-full bg-primary-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
               ))}
             </div>

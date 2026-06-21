@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize2, Minimize2 } from 'lucide-react'
+import FileTypeIcon from '../ui/FileTypeIcon'
 
 interface Props {
   fileUrl: string
@@ -94,8 +95,9 @@ export default function PdfPageViewer({ fileUrl, page, filename }: Props) {
 
   const toolbar = (
     <div className="flex items-center justify-between px-3 py-2 bg-[var(--surface)] border-b border-[var(--border)] flex-shrink-0">
-      <span className="text-xs font-medium text-[var(--text)] truncate max-w-[180px]">
-        📄 {filename || 'معاينة PDF'}
+      <span className="text-xs font-medium text-[var(--text)] truncate max-w-[180px] flex items-center gap-2">
+        <FileTypeIcon type="pdf" size="sm" />
+        {filename || 'معاينة PDF'}
       </span>
       <div className="flex items-center gap-1">
         {/* Zoom controls */}

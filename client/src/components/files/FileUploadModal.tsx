@@ -3,6 +3,7 @@ import {
   Upload, X, CheckCircle, AlertCircle, Folder,
   Clock, Loader2, File, FolderOpen, Plus
 } from 'lucide-react'
+import FileTypeIcon from '../ui/FileTypeIcon'
 import { uploadStarted, uploadFinished } from '../../lib/api'
 import { uploadChunked } from '../../lib/uploadChunked'
 import toast from 'react-hot-toast'
@@ -37,16 +38,7 @@ interface Props {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
-const FILE_ICONS: Record<string, string> = {
-  xlsx: '📊', xlsm: '📊', xls: '📊', csv: '📋',
-  pdf: '📄', docx: '📝', doc: '📝', md: '📑',
-  txt: '📃', json: '🗂️', html: '🌐', htm: '🌐',
-  jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🖼️',
-  webp: '🖼️', bmp: '🖼️', tiff: '🖼️', tif: '🖼️', heic: '🖼️', heif: '🖼️',
-}
-
 function getExt(name: string) { return name.split('.').pop()?.toLowerCase() ?? '' }
-function getIcon(name: string) { return FILE_ICONS[getExt(name)] ?? '📎' }
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return bytes + ' B'
@@ -344,7 +336,7 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
                     ${item.status === 'error' ? 'bg-red-50/50 dark:bg-red-900/10' : ''}
                   `}>
                     {/* Icon */}
-                    <span className="text-xl shrink-0 leading-none">{getIcon(item.file.name)}</span>
+                    <FileTypeIcon type={getExt(item.file.name)} size="md" />
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
