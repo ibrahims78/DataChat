@@ -302,43 +302,121 @@ async function extractFileContent(file) {
   } catch (e) { return `[خطأ في قراءة ${file.original_name}: ${e.message}]` }
 }
 
-function styleExcelSheet(ws, headers, rows) {
-  ws.views = [{ rightToLeft: true, state: 'frozen', ySplit: 1 }]
+const EXCEL_THEMES = {
+  blue:   { h1: 'FF1F4E79', h2: 'FF2E75B6', even: 'FFD6E4F0', border: 'FFB8CCE4', accent: 'FF1F4E79' },
+  purple: { h1: 'FF7C3AED', h2: 'FF5B21B6', even: 'FFF5F3FF', border: 'FFE5E7EB', accent: 'FF5B21B6' },
+  green:  { h1: 'FF1A5276', h2: 'FF1E8449', even: 'FFD5F5E3', border: 'FFA9DFBF', accent: 'FF1E8449' },
+  orange: { h1: 'FFB7410E', h2: 'FFE67E22', even: 'FFFDEBD0', border: 'FFEDBB99', accent: 'FFE67E22' },
+  dark:   { h1: 'FF1C1C1C', h2: 'FF424242', even: 'FFF5F5F5', border: 'FFBDBDBD', accent: 'FF424242' },
+  teal:   { h1: 'FF0E6655', h2: 'FF17A589', even: 'FFD1F2EB', border: 'FFA3E4D7', accent: 'FF17A589' },
+}
+
+function styleExcelSheet(ws, headers, rows, opts = {}) {
+  const theme = EXCEL_THEMES[opts.style] || EXCEL_THEMES.blue
+  const COLS = Math.max(headers ? headers.length : 1, 1)
+  const thin  = (c) => ({ style: 'thin',   color: { argb: c } })
+  const med   = (c) => ({ style: 'medium', color: { argb: c } })
+  const allBorder = (c, s = 'thin') => ({ top: { style: s, color: { argb: c } }, bottom: { style: s, color: { argb: c } }, left: { style: s, color: { argb: c } }, right: { style: s, color: { argb: c } } })
+
+  ws.views = [{ rightToLeft: true }]
+
+  // ── Title row ──
+  if (opts.title) {
+    ws.mergeCells(1, 1, 1, COLS)
+    const tr = ws.getRow(1)
+    tr.height = 32
+    const tc = tr.getCell(1)
+    tc.value = opts.title
+    tc.font  = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } }
+    tc.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: theme.h1 } }
+    tc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true, readingOrder: 'rtl' }
+    tc.border = allBorder(theme.h1, 'medium')
+  }
+
+  // ── Subtitle row ──
+  if (opts.subtitle) {
+    const subRowNum = opts.title ? 2 : 1
+    ws.mergeCells(subRowNum, 1, subRowNum, COLS)
+    const sr = ws.getRow(subRowNum)
+    sr.height = 22
+    const sc = sr.getCell(1)
+    sc.value = opts.subtitle
+    sc.font  = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } }
+    sc.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: theme.h2 } }
+    sc.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true, readingOrder: 'rtl' }
+    sc.border = allBorder(theme.h2)
+  }
+
+  // ── Header groups (second level of headers that span multiple columns) ──
+  let frozenRows = (opts.title ? 1 : 0) + (opts.subtitle ? 1 : 0)
+  if (opts.headerGroups && opts.headerGroups.length) {
+    const grpRowNum = frozenRows + 1
+    const grpRow = ws.getRow(grpRowNum)
+    grpRow.height = 24
+    let col = 1
+    for (const grp of opts.headerGroups) {
+      const span = grp.span || 1
+      if (span > 1) ws.mergeCells(grpRowNum, col, grpRowNum, col + span - 1)
+      const cell = grpRow.getCell(col)
+      cell.value = grp.label || ''
+      cell.font  = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } }
+      cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: theme.h2 } }
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true, readingOrder: 'rtl' }
+      cell.border = allBorder(theme.border)
+      col += span
+    }
+    frozenRows += 1
+  }
+
+  // ── Column headers ──
   if (headers && headers.length) {
-    const headerRow = ws.addRow(headers)
-    headerRow.height = 28
-    headerRow.eachCell(cell => {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7C3AED' } }
-      cell.font = { color: { argb: 'FFFFFFFF' }, bold: true, size: 12 }
-      cell.alignment = { horizontal: 'center', vertical: 'middle' }
-      cell.border = {
-        bottom: { style: 'medium', color: { argb: 'FF5B21B6' } }
-      }
+    const hRowNum = frozenRows + 1
+    frozenRows += 1
+    const headerRow = ws.getRow(hRowNum)
+    headerRow.height = 36
+    headers.forEach((h, i) => {
+      const cell = headerRow.getCell(i + 1)
+      cell.value = h
+      cell.font  = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } }
+      cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: theme.h1 } }
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true, readingOrder: 'rtl' }
+      cell.border = allBorder(theme.border)
     })
   }
+
+  ws.views = [{ rightToLeft: true, state: 'frozen', ySplit: frozenRows }]
+
+  // ── Data rows ──
   if (rows) {
     rows.forEach((row, idx) => {
       const r = ws.addRow(row)
-      r.height = 22
+      r.height = 20
       const isEven = idx % 2 === 0
-      r.eachCell(cell => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isEven ? 'FFF5F3FF' : 'FFFFFFFF' } }
-        cell.alignment = { horizontal: 'center', vertical: 'middle' }
-        cell.border = {
-          bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } }
-        }
+      r.eachCell({ includeEmpty: true }, cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isEven ? theme.even : 'FFFFFFFF' } }
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true, readingOrder: 'rtl' }
+        cell.border = { bottom: thin(theme.border), right: thin(theme.border), left: thin(theme.border) }
+        cell.font = { size: 10 }
       })
     })
   }
-  // Auto width (min 14, max 40)
-  if (ws.columnCount > 0) {
-    ws.columns.forEach(col => {
-      let max = 14
+
+  // ── Column widths: use explicit widths if given, otherwise auto ──
+  if (opts.columnWidths && opts.columnWidths.length) {
+    opts.columnWidths.forEach((w, i) => {
+      if (w) ws.getColumn(i + 1).width = w
+    })
+  } else {
+    ws.columns.forEach((col, i) => {
+      let max = 12
       col.eachCell({ includeEmpty: false }, cell => {
-        const len = cell.value ? String(cell.value).length + 4 : 14
+        const v = cell.value ? String(cell.value) : ''
+        const len = v.includes('\n')
+          ? Math.max(...v.split('\n').map(l => l.length)) + 4
+          : v.length + 4
         if (len > max) max = len
       })
-      col.width = Math.min(max, 40)
+      col.width = Math.min(max, 38)
     })
   }
 }
@@ -837,7 +915,22 @@ router.post('/:projectId/message', async (req, res) => {
 يجب أن تُنهي ردك بأمر الملف المناسب بين الوسوم التالية مباشرةً — هذا إلزامي وليس اختيارياً.
 
 ### صيغة ملف Excel (أضفها في آخر ردك):
-[EXCEL_FILE]{"filename":"اسم_الملف","sheets":[{"name":"اسم الورقة","headers":["عمود1","عمود2","عمود3"],"rows":[["قيمة1","قيمة2","قيمة3"],["قيمة4","قيمة5","قيمة6"]]}]}[/EXCEL_FILE]
+الصيغة الكاملة مع خيارات التنسيق الاحترافي:
+[EXCEL_FILE]{"filename":"اسم_الملف","style":"blue","sheets":[{"name":"اسم الورقة","title":"عنوان الجهة أو الوثيقة","subtitle":"عنوان فرعي اختياري","headerGroups":[{"label":"مجموعة أعمدة 1","span":3},{"label":"مجموعة أعمدة 2","span":2}],"headers":["عمود1","عمود2","عمود3","عمود4","عمود5"],"rows":[["قيمة1","قيمة2","قيمة3","قيمة4","قيمة5"]]}]}[/EXCEL_FILE]
+
+**حقول التنسيق — استخدمها دائماً لملفات احترافية:**
+- **style**: لون النمط — اختر من: "blue" (حكومي/رسمي), "purple" (افتراضي), "green", "orange", "teal", "dark"
+- **title**: عنوان الجهة أو اسم الوثيقة — يُعرض كصف مدمج بلون داكن في أعلى الورقة
+- **subtitle**: عنوان فرعي — يُعرض تحت العنوان الرئيسي بلون أفتح
+- **headerGroups**: مصفوفة مجموعات تجمع الأعمدة تحت تسميات مشتركة — كل مجموعة: {"label":"الاسم","span":عدد_الأعمدة}
+- **headers**: أسماء الأعمدة (الصف الأخير من الرؤوس)
+- **rows**: بيانات الصفوف
+
+**قواعد التنسيق الاحترافي — إلزامية:**
+- عند طلب ملف احترافي أو رسمي: استخدم style:"blue" دائماً مع title وsubtitle
+- عند وجود ملف مرفوع: استخرج عنوان الجهة من الملف وضعه في title
+- عند وجود أعمدة مرتبطة: اجمعها في headerGroups (مثل: "بيانات الجهاز" تجمع 5 أعمدة، "الحالة الفنية" تجمع 3 أعمدة)
+- لا تترك title وsubtitle فارغين عند الطلبات الرسمية أو الحكومية
 
 ### صيغة ملف PDF (أضفها في آخر ردك):
 [PDF_FILE]{"filename":"اسم_الملف","title":"عنوان التقرير","content":"# القسم الأول\n\nالمحتوى هنا...\n\n## تفصيل\n\n- نقطة أولى\n- نقطة ثانية"}[/PDF_FILE]
@@ -1162,12 +1255,19 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         if (excelData.sheets && excelData.sheets.length > 0) {
           const wb = new ExcelJS.Workbook()
           wb.creator = 'DataChat'
+          wb.rtl = true
           for (const sheet of excelData.sheets) {
             const ws = wb.addWorksheet(sheet.name || 'ورقة 1')
             const headers = sheet.headers || []
             const rows = sheet.rows || []
             console.log(`[EXCEL] Sheet "${sheet.name}": ${headers.length} headers, ${rows.length} rows`)
-            styleExcelSheet(ws, headers, rows)
+            styleExcelSheet(ws, headers, rows, {
+              title:        sheet.title        || excelData.title        || null,
+              subtitle:     sheet.subtitle     || excelData.subtitle     || null,
+              style:        sheet.style        || excelData.style        || 'blue',
+              headerGroups: sheet.headerGroups || null,
+              columnWidths: sheet.columnWidths || null,
+            })
           }
           const genDir = path.join(__dirname, '../../../uploads/generated')
           if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true })
