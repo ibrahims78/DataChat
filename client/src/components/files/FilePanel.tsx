@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import {
   Trash2, Download, Eye, Upload, ChevronLeft, ChevronRight,
-  FolderPlus, Folder, FolderOpen, Pencil, Check, X, GripVertical,
-  ChevronDown, ChevronUp
+  FolderPlus, Folder, FolderOpen, Pencil, X, GripVertical,
+  ChevronDown, ChevronUp, Files, FolderSync, Sparkles
 } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useT } from '../../i18n/translations'
@@ -53,8 +53,14 @@ function fileName(f: FileItem | GenFile) {
   return f.display_name || f.original_name
 }
 
-export default function FilePanel({ files, generatedFiles, folders, projectId, onRefresh, onUpload, onBatchAnalyze, mobileOpen = false, onMobileClose, onSyncAll, isSyncing, onFolderFilesOpen }: Props) {
+type TabId = 'project' | 'linked' | 'generated'
+
+export default function FilePanel({
+  files, generatedFiles, folders, projectId, onRefresh, onUpload,
+  onBatchAnalyze, mobileOpen = false, onMobileClose, onSyncAll, isSyncing, onFolderFilesOpen
+}: Props) {
   const [collapsed, setCollapsed] = useState(false)
+  const [activeTab, setActiveTab] = useState<TabId>('project')
   const [collapsedFolders, setCollapsedFolders] = useState<Set<number>>(new Set())
   const [importFolder, setImportFolder] = useState<string | null>(null)
   const [showCapabilities, setShowCapabilities] = useState(false)
@@ -81,6 +87,12 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
 
   const { lang } = useTheme()
   const tr = useT(lang)
+
+  const tabs: { id: TabId; label: string; icon: React.ReactNode; badge?: number }[] = [
+    { id: 'project', label: 'ملفات المشروع', icon: <Files size={13} />, badge: files.length },
+    { id: 'linked', label: 'المجلدات المرتبطة', icon: <FolderSync size={13} /> },
+    { id: 'generated', label: 'مُولَّدة', icon: <Sparkles size={13} />, badge: generatedFiles.length || undefined },
+  ]
 
   useEffect(() => {
     if (renaming) setTimeout(() => renameRef.current?.focus(), 50)
@@ -151,28 +163,22 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
     } catch { setPreview({ type: 'error', message: 'فشل تحميل المعاينة' }) }
   }
 
-  // ─── Download uploaded file ──────────────────────────────────────────────────
   const downloadFile = (f: FileItem) => {
     const token = localStorage.getItem('token')
     if (!token) { toast.error('يرجى تسجيل الدخول أولاً'); return }
     const a = document.createElement('a')
     a.href = `/api/files/${projectId}/${f.id}/download?token=${encodeURIComponent(token)}`
     a.download = fileName(f)
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
   }
 
-  // ─── Download generated file ───────────────────────────────────────────────
   const downloadGenFile = (f: GenFile) => {
     const token = localStorage.getItem('token')
     if (!token) { toast.error('يرجى تسجيل الدخول أولاً'); return }
     const a = document.createElement('a')
     a.href = `/api/files/generated/${f.id}/download?token=${encodeURIComponent(token)}`
     a.download = fileName(f)
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
   }
 
   // ─── Drag & drop ───────────────────────────────────────────────────────────
@@ -180,37 +186,30 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
     setDragItem({ type, id, folderId })
     e.dataTransfer.effectAllowed = 'move'
   }
-
   const onDragOver = (e: React.DragEvent, type: 'file' | 'gen' | 'folder', id: number) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move'
     setDragOverTarget({ type, id })
   }
-
   const onDragLeave = () => setDragOverTarget(null)
   const onDragEnd = () => { setDragItem(null); setDragOverTarget(null) }
 
   const onDropOnFolder = async (e: React.DragEvent, folderId: number) => {
-    e.preventDefault()
-    setDragOverTarget(null)
+    e.preventDefault(); setDragOverTarget(null)
     if (!dragItem || dragItem.type !== 'file' || dragItem.folderId === folderId) { setDragItem(null); return }
     try {
-      const updatedFiles = files.map(f =>
-        f.id === dragItem.id
-          ? { id: f.id, sort_order: f.sort_order, folder_id: folderId }
-          : { id: f.id, sort_order: f.sort_order, folder_id: f.folder_id ?? null }
-      )
-      await api.patch(`/files/${projectId}/reorder`, { items: updatedFiles })
+      const items = files.map(f => ({
+        id: f.id, sort_order: f.sort_order,
+        folder_id: f.id === dragItem.id ? folderId : (f.folder_id ?? null)
+      }))
+      await api.patch(`/files/${projectId}/reorder`, { items })
       onRefresh()
     } catch { toast.error('فشل النقل') }
     setDragItem(null)
   }
 
   const onDropOnFile = async (e: React.DragEvent, targetId: number, targetFolderId: number | null) => {
-    e.preventDefault()
-    setDragOverTarget(null)
+    e.preventDefault(); setDragOverTarget(null)
     if (!dragItem || dragItem.id === targetId) { setDragItem(null); return }
-
     if (dragItem.type === 'file') {
       const list = [...files]
       const fromIdx = list.findIndex(f => f.id === dragItem.id)
@@ -219,14 +218,11 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
       const [moved] = list.splice(fromIdx, 1)
       list.splice(toIdx, 0, moved)
       const items = list.map((f, i) => ({
-        id: f.id,
-        sort_order: i,
+        id: f.id, sort_order: i,
         folder_id: f.id === dragItem.id ? targetFolderId : (f.folder_id ?? null)
       }))
-      try {
-        await api.patch(`/files/${projectId}/reorder`, { items })
-        onRefresh()
-      } catch { toast.error('فشل الترتيب') }
+      try { await api.patch(`/files/${projectId}/reorder`, { items }); onRefresh() }
+      catch { toast.error('فشل الترتيب') }
     } else {
       const list = [...generatedFiles]
       const fromIdx = list.findIndex(f => f.id === dragItem.id)
@@ -235,22 +231,18 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
       const [moved] = list.splice(fromIdx, 1)
       list.splice(toIdx, 0, moved)
       const items = list.map((f, i) => ({ id: f.id, sort_order: i }))
-      try {
-        await api.patch(`/files/${projectId}/reorder-generated`, { items })
-        onRefresh()
-      } catch { toast.error('فشل الترتيب') }
+      try { await api.patch(`/files/${projectId}/reorder-generated`, { items }); onRefresh() }
+      catch { toast.error('فشل الترتيب') }
     }
     setDragItem(null)
   }
 
   const onDropOnUncategorized = async (e: React.DragEvent) => {
-    e.preventDefault()
-    setDragOverTarget(null)
+    e.preventDefault(); setDragOverTarget(null)
     if (!dragItem || dragItem.type !== 'file' || dragItem.folderId === null) { setDragItem(null); return }
     try {
       const items = files.map(f => ({
-        id: f.id,
-        sort_order: f.sort_order,
+        id: f.id, sort_order: f.sort_order,
         folder_id: f.id === dragItem.id ? null : (f.folder_id ?? null)
       }))
       await api.patch(`/files/${projectId}/reorder`, { items })
@@ -259,7 +251,6 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
     setDragItem(null)
   }
 
-  // ─── Helpers ───────────────────────────────────────────────────────────────
   const filesInFolder = (folderId: number) => files.filter(f => f.folder_id === folderId)
   const uncategorizedFiles = files.filter(f => !f.folder_id)
   const isDragOver = (type: string, id: number) => dragOverTarget?.type === type && dragOverTarget.id === id
@@ -270,12 +261,11 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
     return `هل تريد حذف "${fileName(deleteTarget.item)}"؟`
   }
 
-  // ─── Render a single file row ──────────────────────────────────────────────
+  // ─── File row ──────────────────────────────────────────────────────────────
   const renderFileRow = (f: FileItem, folderId: number | null = null) => {
     const isRenamingThis = renaming?.type === 'file' && renaming.id === f.id
     const isDraggingThis = dragItem?.id === f.id && dragItem.type === 'file'
     const isOver = isDragOver('file', f.id)
-
     return (
       <div
         key={f.id}
@@ -287,8 +277,7 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
         onDrop={e => onDropOnFile(e, f.id, folderId)}
         className={`flex items-center gap-1.5 p-2 rounded-lg group transition-all cursor-default select-none
           ${isDraggingThis ? 'opacity-40' : ''}
-          ${isOver ? 'bg-primary-100 dark:bg-primary-900/40 ring-1 ring-primary-400' : 'hover:bg-[var(--bg)]'}
-        `}
+          ${isOver ? 'bg-primary-100 dark:bg-primary-900/40 ring-1 ring-primary-400' : 'hover:bg-[var(--bg)]'}`}
       >
         <span className="text-[var(--muted)] cursor-grab active:cursor-grabbing shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           <GripVertical size={12} />
@@ -313,39 +302,30 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
           {!!f.file_size && <p className="text-xs text-[var(--muted)]">{formatSize(f.file_size)}</p>}
         </div>
         <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          <button
-            onClick={e => { e.stopPropagation(); startRename('file', f.id, fileName(f)) }}
+          <button onClick={e => { e.stopPropagation(); startRename('file', f.id, fileName(f)) }}
             className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="إعادة التسمية">
             <Pencil size={11} />
           </button>
           {(f.file_type === 'excel' || f.file_type === 'csv') ? (
-            <button
-              onClick={e => { e.stopPropagation(); downloadFile(f) }}
-              className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="فتح في Excel">
+            <button onClick={e => { e.stopPropagation(); downloadFile(f) }}
+              className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="تحميل">
               <Download size={11} />
             </button>
-          ) : (f.file_type === 'markdown' || f.file_type === 'text' || f.file_type === 'json') ? (
+          ) : (
             <>
-              <button
-                onClick={e => { e.stopPropagation(); showPreview(f) }}
+              <button onClick={e => { e.stopPropagation(); showPreview(f) }}
                 className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="معاينة">
                 <Eye size={11} />
               </button>
-              <button
-                onClick={e => { e.stopPropagation(); downloadFile(f) }}
-                className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="تحميل">
-                <Download size={11} />
-              </button>
+              {(f.file_type === 'markdown' || f.file_type === 'text' || f.file_type === 'json') && (
+                <button onClick={e => { e.stopPropagation(); downloadFile(f) }}
+                  className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="تحميل">
+                  <Download size={11} />
+                </button>
+              )}
             </>
-          ) : (
-            <button
-              onClick={e => { e.stopPropagation(); showPreview(f) }}
-              className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="معاينة">
-              <Eye size={11} />
-            </button>
           )}
-          <button
-            onClick={e => { e.stopPropagation(); setDeleteTarget({ type: 'file', item: f }) }}
+          <button onClick={e => { e.stopPropagation(); setDeleteTarget({ type: 'file', item: f }) }}
             className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-[var(--muted)] hover:text-red-500 transition-colors" title="حذف">
             <Trash2 size={11} />
           </button>
@@ -354,12 +334,11 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
     )
   }
 
-  // ─── Render a generated file row ────────────────────────────────────────────
+  // ─── Generated file row ────────────────────────────────────────────────────
   const renderGenRow = (f: GenFile) => {
     const isRenamingThis = renaming?.type === 'gen' && renaming.id === f.id
     const isDraggingThis = dragItem?.id === f.id && dragItem.type === 'gen'
     const isOver = isDragOver('gen', f.id)
-
     return (
       <div
         key={f.id}
@@ -371,8 +350,7 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
         onDrop={e => onDropOnFile(e, f.id, null)}
         className={`flex items-center gap-1.5 p-2 rounded-lg group transition-all select-none
           ${isDraggingThis ? 'opacity-40' : ''}
-          ${isOver ? 'bg-primary-100 dark:bg-primary-900/40 ring-1 ring-primary-400' : 'hover:bg-[var(--bg)]'}
-        `}
+          ${isOver ? 'bg-primary-100 dark:bg-primary-900/40 ring-1 ring-primary-400' : 'hover:bg-[var(--bg)]'}`}
       >
         <span className="text-[var(--muted)] cursor-grab active:cursor-grabbing shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           <GripVertical size={12} />
@@ -396,18 +374,15 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
           )}
         </div>
         <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          <button
-            onClick={e => { e.stopPropagation(); startRename('gen', f.id, fileName(f)) }}
+          <button onClick={e => { e.stopPropagation(); startRename('gen', f.id, fileName(f)) }}
             className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="إعادة التسمية">
             <Pencil size={11} />
           </button>
-          <button
-            onClick={e => { e.stopPropagation(); downloadGenFile(f) }}
+          <button onClick={e => { e.stopPropagation(); downloadGenFile(f) }}
             className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="تحميل">
             <Download size={11} />
           </button>
-          <button
-            onClick={e => { e.stopPropagation(); setDeleteTarget({ type: 'gen', item: f }) }}
+          <button onClick={e => { e.stopPropagation(); setDeleteTarget({ type: 'gen', item: f }) }}
             className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-[var(--muted)] hover:text-red-500 transition-colors" title="حذف">
             <Trash2 size={11} />
           </button>
@@ -416,40 +391,151 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
     )
   }
 
-  // ─── Shared panel content (called as function, not rendered as component) ───
-  const panelContent = (onClose?: () => void) => (
-    <>
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
-        <span className="font-semibold text-sm text-[var(--text)]">{tr('files')}</span>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setCreatingFolder(true)}
-            className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] hover:text-primary-600 transition-colors" title={tr('newFolder')}>
-            <FolderPlus size={14} />
-          </button>
-          <button
-            onClick={onUpload}
-            className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] hover:text-primary-600 transition-colors" title={tr('uploadFile')}>
-            <Upload size={14} />
-          </button>
-          {onClose ? (
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors" title="إغلاق">
-              <X size={14} />
-            </button>
-          ) : (
-            <button
-              onClick={() => setCollapsed(true)}
-              className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors">
-              <ChevronRight size={14} className={lang === 'ar' ? '' : 'rotate-180'} />
-            </button>
-          )}
-        </div>
+  // ─── Tab content ───────────────────────────────────────────────────────────
+  const renderProjectTab = () => (
+    <div className="flex-1 overflow-y-auto p-2 space-y-3">
+      {/* Upload button */}
+      <button
+        onClick={onUpload}
+        className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border-2 border-dashed border-[var(--border)]
+                   hover:border-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/10
+                   text-[var(--muted)] hover:text-primary-600 transition-all group"
+      >
+        <Upload size={16} className="group-hover:text-primary-500 transition-colors" />
+        <span className="text-xs font-medium">{tr('uploadFile')}</span>
+      </button>
+
+      {/* New folder trigger */}
+      <div className="flex items-center justify-between px-1">
+        <span className="text-[11px] font-semibold text-[var(--muted)] uppercase tracking-wide">المجلدات والملفات</span>
+        <button
+          onClick={() => setCreatingFolder(true)}
+          className="flex items-center gap-1 text-[11px] text-[var(--muted)] hover:text-primary-600 transition-colors px-1 py-0.5 rounded"
+          title="إنشاء مجلد جديد في المشروع"
+        >
+          <FolderPlus size={13} />
+          <span>مجلد جديد</span>
+        </button>
       </div>
 
-      {/* Folder sync section */}
+      {/* New folder input */}
+      {creatingFolder && (
+        <div className="flex items-center gap-1 px-2">
+          <Folder size={14} className="text-primary-500 shrink-0" />
+          <input
+            ref={newFolderRef}
+            value={newFolderName}
+            onChange={e => setNewFolderName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName('') } }}
+            onBlur={createFolder}
+            placeholder={tr('folderName')}
+            className="text-xs flex-1 bg-[var(--bg)] border border-primary-400 rounded px-2 py-1 outline-none text-[var(--text)]"
+          />
+        </div>
+      )}
+
+      {/* Project folders */}
+      {folders.map(folder => {
+        const folderFiles = filesInFolder(folder.id)
+        const isOpen = !collapsedFolders.has(folder.id)
+        const isRenamingFolder = renaming?.type === 'folder' && renaming.id === folder.id
+        const isDropTarget = isDragOver('folder', folder.id)
+        return (
+          <div key={folder.id}
+            onDragOver={e => { e.preventDefault(); setDragOverTarget({ type: 'folder', id: folder.id }) }}
+            onDragLeave={onDragLeave}
+            onDrop={e => onDropOnFolder(e, folder.id)}
+            className={`rounded-lg transition-all ${isDropTarget ? 'ring-2 ring-primary-400 bg-primary-50 dark:bg-primary-900/20' : ''}`}
+          >
+            <div
+              className="flex items-center gap-1 px-2 py-1.5 group rounded-lg hover:bg-[var(--bg)] cursor-pointer"
+              onClick={() => setCollapsedFolders(prev => {
+                const s = new Set(prev)
+                s.has(folder.id) ? s.delete(folder.id) : s.add(folder.id)
+                return s
+              })}
+            >
+              <span className="text-primary-500 shrink-0">
+                {isOpen ? <FolderOpen size={14} /> : <Folder size={14} />}
+              </span>
+              {isRenamingFolder ? (
+                <input
+                  ref={renameRef}
+                  value={renaming!.value}
+                  onChange={e => setRenaming(r => r ? { ...r, value: e.target.value } : r)}
+                  onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenaming(null) }}
+                  onBlur={commitRename}
+                  onClick={e => e.stopPropagation()}
+                  className="text-xs flex-1 bg-[var(--bg)] border border-primary-400 rounded px-1.5 py-0.5 outline-none text-[var(--text)]"
+                />
+              ) : (
+                <span className="text-xs font-medium text-[var(--text)] flex-1 truncate"
+                  onDoubleClick={e => { e.stopPropagation(); startRename('folder', folder.id, folder.name) }}>
+                  {folder.name}
+                </span>
+              )}
+              <span className="text-xs text-[var(--muted)]">{folderFiles.length}</span>
+              <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                <button onClick={e => { e.stopPropagation(); startRename('folder', folder.id, folder.name) }}
+                  className="p-0.5 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors">
+                  <Pencil size={10} />
+                </button>
+                <button onClick={e => { e.stopPropagation(); setDeleteTarget({ type: 'folder', item: folder }) }}
+                  className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-[var(--muted)] hover:text-red-500 transition-colors">
+                  <Trash2 size={10} />
+                </button>
+              </div>
+              <span className="text-[var(--muted)]">
+                {isOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              </span>
+            </div>
+            {isOpen && (
+              <div className="ps-3 space-y-0.5">
+                {folderFiles.length === 0 ? (
+                  <p className="text-xs text-[var(--muted)] px-2 py-2 italic">اسحب ملفاً هنا...</p>
+                ) : (
+                  folderFiles.map(f => renderFileRow(f, folder.id))
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {/* Uncategorized files */}
+      <div>
+        {folders.length > 0 && (
+          <div
+            onDragOver={e => { e.preventDefault(); setDragOverTarget({ type: 'folder', id: -1 }) }}
+            onDragLeave={onDragLeave}
+            onDrop={onDropOnUncategorized}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg mb-1 transition-all
+              ${isDragOver('folder', -1) ? 'bg-primary-50 dark:bg-primary-900/20 ring-1 ring-primary-300' : ''}`}
+          >
+            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide flex-1">
+              {tr('uncategorized')} ({uncategorizedFiles.length})
+            </p>
+          </div>
+        )}
+        {uncategorizedFiles.length === 0 && files.length === 0 ? (
+          <div className="text-center py-8">
+            <div className="w-12 h-12 rounded-2xl bg-[var(--bg)] flex items-center justify-center mx-auto mb-3">
+              <Files size={22} className="text-[var(--muted)]" />
+            </div>
+            <p className="text-xs text-[var(--muted)]">{tr('noFilesYet')}</p>
+            <button onClick={onUpload} className="text-xs text-primary-600 mt-2 hover:underline">{tr('uploadFile')}</button>
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {uncategorizedFiles.map(f => renderFileRow(f, null))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
+  const renderLinkedTab = () => (
+    <div className="flex-1 overflow-y-auto">
       <FolderSyncSection
         projectId={projectId}
         onRefresh={onRefresh}
@@ -458,151 +544,88 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
         onSyncAll={onSyncAll}
         isSyncing={isSyncing}
       />
-
-      <div className="flex-1 overflow-y-auto p-2 space-y-3">
-
-        {/* Linked folder files */}
+      <div className="px-2 pb-2 space-y-2">
         <FolderFilesSection
           projectId={projectId}
           onRefresh={onRefresh}
           onAnalyze={onBatchAnalyze}
           onOpenFilesChange={onFolderFilesOpen}
         />
+      </div>
+    </div>
+  )
 
-        {/* New folder input */}
-        {creatingFolder && (
-          <div className="flex items-center gap-1 px-2">
-            <Folder size={14} className="text-primary-500 shrink-0" />
-            <input
-              ref={newFolderRef}
-              value={newFolderName}
-              onChange={e => setNewFolderName(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') createFolder(); if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName('') } }}
-              onBlur={createFolder}
-              placeholder={tr('folderName')}
-              className="text-xs flex-1 bg-[var(--bg)] border border-primary-400 rounded px-2 py-1 outline-none text-[var(--text)]"
-            />
+  const renderGeneratedTab = () => (
+    <div className="flex-1 overflow-y-auto p-2">
+      {generatedFiles.length === 0 ? (
+        <div className="text-center py-12">
+          <div className="w-12 h-12 rounded-2xl bg-[var(--bg)] flex items-center justify-center mx-auto mb-3">
+            <Sparkles size={22} className="text-[var(--muted)]" />
           </div>
-        )}
-
-        {/* Folders */}
-        {folders.map(folder => {
-          const folderFiles = filesInFolder(folder.id)
-          const isOpen = !collapsedFolders.has(folder.id)
-          const isRenamingFolder = renaming?.type === 'folder' && renaming.id === folder.id
-          const isDropTarget = isDragOver('folder', folder.id)
-
-          return (
-            <div key={folder.id}
-              onDragOver={e => { e.preventDefault(); setDragOverTarget({ type: 'folder', id: folder.id }) }}
-              onDragLeave={onDragLeave}
-              onDrop={e => onDropOnFolder(e, folder.id)}
-              className={`rounded-lg transition-all ${isDropTarget ? 'ring-2 ring-primary-400 bg-primary-50 dark:bg-primary-900/20' : ''}`}
-            >
-              {/* Folder header */}
-              <div
-                className="flex items-center gap-1 px-2 py-1.5 group rounded-lg hover:bg-[var(--bg)] cursor-pointer"
-                onClick={() => setCollapsedFolders(prev => {
-                  const s = new Set(prev)
-                  s.has(folder.id) ? s.delete(folder.id) : s.add(folder.id)
-                  return s
-                })}
-              >
-                <span className="text-primary-500 shrink-0">
-                  {isOpen ? <FolderOpen size={14} /> : <Folder size={14} />}
-                </span>
-                {isRenamingFolder ? (
-                  <input
-                    ref={renameRef}
-                    value={renaming!.value}
-                    onChange={e => setRenaming(r => r ? { ...r, value: e.target.value } : r)}
-                    onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenaming(null) }}
-                    onBlur={commitRename}
-                    onClick={e => e.stopPropagation()}
-                    className="text-xs flex-1 bg-[var(--bg)] border border-primary-400 rounded px-1.5 py-0.5 outline-none text-[var(--text)]"
-                  />
-                ) : (
-                  <span
-                    className="text-xs font-medium text-[var(--text)] flex-1 truncate"
-                    onDoubleClick={e => { e.stopPropagation(); startRename('folder', folder.id, folder.name) }}>
-                    {folder.name}
-                  </span>
-                )}
-                <span className="text-xs text-[var(--muted)]">{folderFiles.length}</span>
-                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                  <button
-                    onClick={e => { e.stopPropagation(); startRename('folder', folder.id, folder.name) }}
-                    className="p-0.5 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors">
-                    <Pencil size={10} />
-                  </button>
-                  <button
-                    onClick={e => { e.stopPropagation(); setDeleteTarget({ type: 'folder', item: folder }) }}
-                    className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-[var(--muted)] hover:text-red-500 transition-colors">
-                    <Trash2 size={10} />
-                  </button>
-                </div>
-                <span className="text-[var(--muted)]">
-                  {isOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                </span>
-              </div>
-
-              {/* Files inside folder */}
-              {isOpen && (
-                <div className="ps-3 space-y-0.5">
-                  {folderFiles.length === 0 ? (
-                    <p className="text-xs text-[var(--muted)] px-2 py-2 italic">اسحب ملفاً هنا...</p>
-                  ) : (
-                    folderFiles.map(f => renderFileRow(f, folder.id))
-                  )}
-                </div>
-              )}
-            </div>
-          )
-        })}
-
-        {/* Uncategorized files */}
-        <div>
-          {folders.length > 0 && (
-            <div
-              onDragOver={e => { e.preventDefault(); setDragOverTarget({ type: 'folder', id: -1 }) }}
-              onDragLeave={onDragLeave}
-              onDrop={onDropOnUncategorized}
-              className={`flex items-center gap-1.5 px-2 py-1 rounded-lg mb-1 transition-all
-                ${isDragOver('folder', -1) ? 'bg-primary-50 dark:bg-primary-900/20 ring-1 ring-primary-300' : ''}
-              `}
-            >
-              <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wide flex-1">
-                {tr('uncategorized')} ({uncategorizedFiles.length})
-              </p>
-            </div>
-          )}
-
-          {uncategorizedFiles.length === 0 && files.length === 0 ? (
-            <div className="text-center py-6">
-              <p className="text-xs text-[var(--muted)]">{tr('noFilesYet')}</p>
-              <button onClick={onUpload} className="text-xs text-primary-600 mt-1 hover:underline">{tr('uploadFile')}</button>
-            </div>
-          ) : (
-            <div className="space-y-0.5">
-              {uncategorizedFiles.map(f => renderFileRow(f, null))}
-            </div>
-          )}
+          <p className="text-xs text-[var(--muted)]">لا توجد ملفات مُولَّدة بعد</p>
+          <p className="text-[11px] text-[var(--muted)] mt-1 opacity-70">اطلب من الذكاء الاصطناعي إنشاء ملف Excel أو PDF أو HTML</p>
         </div>
+      ) : (
+        <div className="space-y-0.5">
+          {generatedFiles.map(f => renderGenRow(f))}
+        </div>
+      )}
+    </div>
+  )
 
-        {/* Generated files */}
-        {generatedFiles.length > 0 && (
-          <div className="border-t border-[var(--border)] pt-3">
-            <p className="text-xs font-semibold text-[var(--muted)] mb-2 px-1 uppercase tracking-wide">
-              {tr('generatedFiles')} ({generatedFiles.length})
-            </p>
-            <div className="space-y-0.5">
-              {generatedFiles.map(f => renderGenRow(f))}
-            </div>
-          </div>
+  // ─── Shared panel (called as function, not component) ──────────────────────
+  const panelContent = (onClose?: () => void) => (
+    <>
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--border)] shrink-0">
+        <span className="font-semibold text-sm text-[var(--text)]">{tr('files')}</span>
+        {onClose ? (
+          <button onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors">
+            <X size={14} />
+          </button>
+        ) : (
+          <button onClick={() => setCollapsed(true)}
+            className="p-1.5 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors">
+            <ChevronRight size={14} className={lang === 'ar' ? '' : 'rotate-180'} />
+          </button>
         )}
       </div>
 
-      {/* Confirm delete modal */}
+      {/* Tabs */}
+      <div className="flex border-b border-[var(--border)] shrink-0 bg-[var(--bg)]">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 flex items-center justify-center gap-1 py-2 text-[11px] font-medium transition-colors relative
+              ${activeTab === tab.id
+                ? 'text-primary-600 dark:text-primary-400'
+                : 'text-[var(--muted)] hover:text-[var(--text)]'}`}
+          >
+            {tab.icon}
+            <span className="hidden sm:inline truncate">{tab.id === 'project' ? 'ملفات' : tab.id === 'linked' ? 'مرتبطة' : 'مُولَّدة'}</span>
+            {tab.badge !== undefined && tab.badge > 0 && (
+              <span className={`text-[10px] px-1 rounded-full font-bold
+                ${activeTab === tab.id ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-600' : 'bg-[var(--border)] text-[var(--muted)]'}`}>
+                {tab.badge}
+              </span>
+            )}
+            {activeTab === tab.id && (
+              <span className="absolute bottom-0 inset-x-0 h-0.5 bg-primary-600 dark:bg-primary-400 rounded-t" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      <div className="flex-1 overflow-hidden flex flex-col">
+        {activeTab === 'project' && renderProjectTab()}
+        {activeTab === 'linked' && renderLinkedTab()}
+        {activeTab === 'generated' && renderGeneratedTab()}
+      </div>
+
+      {/* Modals */}
       <ConfirmModal
         open={!!deleteTarget}
         title={deleteTarget?.type === 'folder' ? tr('deleteFolder') : 'حذف الملف'}
@@ -614,7 +637,6 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
         onConfirm={confirmDelete}
       />
 
-      {/* Folder import modal */}
       {importFolder && (
         <FolderImportModal
           projectId={projectId}
@@ -625,10 +647,7 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
         />
       )}
 
-      {/* Folder capabilities modal */}
-      {showCapabilities && (
-        <FolderCapabilitiesModal onClose={() => setShowCapabilities(false)} />
-      )}
+      {showCapabilities && <FolderCapabilitiesModal onClose={() => setShowCapabilities(false)} />}
 
       {/* File preview modal */}
       {previewFile && (
@@ -670,16 +689,10 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
                   {preview.totalPages && <p className="text-xs text-[var(--muted)] mb-2">{preview.totalPages} {tr('pages')}</p>}
                   <p className="text-sm text-[var(--text)] whitespace-pre-wrap leading-relaxed bg-[var(--bg)] rounded-lg p-4">{preview.text}...</p>
                 </div>
-              ) : preview.type === 'markdown' ? (
-                <div>
-                  <p className="text-xs text-[var(--muted)] mb-2">معاينة Markdown</p>
-                  <pre className="text-sm text-[var(--text)] whitespace-pre-wrap leading-relaxed bg-[var(--bg)] rounded-lg p-4 font-mono overflow-x-auto">{preview.text}{preview.text?.length >= 1000 ? '...' : ''}</pre>
-                </div>
-              ) : preview.type === 'json' ? (
-                <div>
-                  <p className="text-xs text-[var(--muted)] mb-2">معاينة JSON</p>
-                  <pre className="text-sm text-[var(--text)] whitespace-pre-wrap leading-relaxed bg-[var(--bg)] rounded-lg p-4 font-mono overflow-x-auto">{preview.text}{preview.text?.length >= 1000 ? '...' : ''}</pre>
-                </div>
+              ) : (preview.type === 'markdown' || preview.type === 'json') ? (
+                <pre className="text-sm text-[var(--text)] whitespace-pre-wrap leading-relaxed bg-[var(--bg)] rounded-lg p-4 font-mono overflow-x-auto">
+                  {preview.text}{preview.text?.length >= 1000 ? '...' : ''}
+                </pre>
               ) : (
                 <p className="text-red-500 text-sm">{preview.message}</p>
               )}
@@ -690,7 +703,7 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
     </>
   )
 
-  // ─── Collapsed (desktop only) ──────────────────────────────────────────────
+  // ─── Collapsed sidebar button ──────────────────────────────────────────────
   if (collapsed) return (
     <button onClick={() => setCollapsed(false)}
       className="hidden md:flex w-10 bg-[var(--surface)] border-s border-[var(--border)] items-center justify-center hover:bg-[var(--bg)] transition-colors">
@@ -700,7 +713,7 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
 
   return (
     <>
-      {/* Mobile drawer overlay */}
+      {/* Mobile drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-40 flex md:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={onMobileClose} />

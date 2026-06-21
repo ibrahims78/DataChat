@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Send, Paperclip } from 'lucide-react'
+import { Send, Paperclip, Maximize2, Minimize2 } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useT } from '../../i18n/translations'
 import { useDropzone } from 'react-dropzone'
@@ -17,6 +17,7 @@ interface Props {
 
 export default function ChatInput({ onSend, disabled, queueCount = 0, projectId, onFileUploaded }: Props) {
   const [text, setText] = useState('')
+  const [expanded, setExpanded] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { lang } = useTheme()
   const tr = useT(lang)
@@ -35,7 +36,7 @@ export default function ChatInput({ onSend, disabled, queueCount = 0, projectId,
 
   const handleSend = () => {
     const trimmed = text.trim()
-    if (!trimmed) return
+    if (!trimmed || disabled) return
     onSend(trimmed)
     setText('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -86,12 +87,18 @@ export default function ChatInput({ onSend, disabled, queueCount = 0, projectId,
   const autoResize = () => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px'
+      const maxH = expanded ? 320 : 120
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, maxH) + 'px'
     }
   }
 
+  useEffect(() => { autoResize() }, [expanded])
+
   return (
-    <div {...getRootProps()} className={`px-4 py-3 bg-[var(--surface)] border-t border-[var(--border)] transition-colors ${isDragActive ? 'bg-primary-50 dark:bg-primary-900/10' : ''}`}>
+    <div
+      {...getRootProps()}
+      className={`px-4 py-3 bg-[var(--surface)] border-t border-[var(--border)] transition-colors ${isDragActive ? 'bg-primary-50 dark:bg-primary-900/10' : ''}`}
+    >
       <input {...getInputProps()} />
       {isDragActive && (
         <div className="text-center text-primary-600 text-sm py-2 font-semibold animate-fade-in">
@@ -110,28 +117,53 @@ export default function ChatInput({ onSend, disabled, queueCount = 0, projectId,
           <span>{queueCount === 1 ? 'سؤال واحد في الانتظار' : `${queueCount} أسئلة في الانتظار`} — سيُعالجها الذكاء بالترتيب</span>
         </div>
       )}
-      <div className="flex items-end gap-3 bg-[var(--bg)] rounded-2xl border border-[var(--border)] px-4 py-2 focus-within:border-primary-400 transition-colors">
-        <button onClick={open} disabled={uploading}
+      <div className={`flex items-end gap-2 bg-[var(--bg)] rounded-2xl border border-[var(--border)] px-3 py-2 focus-within:border-primary-400 transition-all ${expanded ? 'shadow-lg' : ''}`}>
+        {/* Attach file */}
+        <button
+          onClick={open}
+          disabled={uploading}
           className="p-1.5 rounded-lg hover:bg-[var(--surface)] text-[var(--muted)] transition-colors shrink-0 self-end mb-0.5"
-          title={tr('uploadFile')}>
+          title={tr('uploadFile')}
+        >
           {uploading
             ? <span className="inline-block w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
-            : <Paperclip size={18} />}
+            : <Paperclip size={17} />}
         </button>
+
+        {/* Textarea */}
         <textarea
           ref={textareaRef}
-          className="flex-1 bg-transparent outline-none text-sm text-[var(--text)] placeholder-[var(--muted)] resize-none min-h-[36px] max-h-[120px] py-1.5 font-cairo leading-relaxed"
+          className="flex-1 bg-transparent outline-none text-sm text-[var(--text)] placeholder-[var(--muted)] resize-none py-1.5 font-cairo leading-relaxed"
+          style={{ minHeight: '36px', maxHeight: expanded ? '320px' : '120px' }}
           placeholder={tr('typeMessage')}
           value={text}
           onChange={e => { setText(e.target.value); autoResize() }}
           onKeyDown={handleKeyDown}
           rows={1}
         />
-        <button onClick={handleSend} disabled={!text.trim()}
-          className="p-2 rounded-xl bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0 self-end">
+
+        {/* Expand / Collapse toggle */}
+        <button
+          onClick={() => setExpanded(p => !p)}
+          className="p-1.5 rounded-lg hover:bg-[var(--surface)] text-[var(--muted)] hover:text-primary-500 transition-colors shrink-0 self-end mb-0.5"
+          title={expanded ? 'تصغير صندوق الكتابة' : 'تكبير صندوق الكتابة'}
+        >
+          {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+        </button>
+
+        {/* Send */}
+        <button
+          onClick={handleSend}
+          disabled={!text.trim() || disabled}
+          className="p-2 rounded-xl bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0 self-end"
+          title="إرسال (Enter)"
+        >
           <Send size={16} />
         </button>
       </div>
+      <p className="text-[10px] text-[var(--muted)] mt-1 px-1 select-none">
+        Enter للإرسال &nbsp;·&nbsp; Shift+Enter لسطر جديد &nbsp;·&nbsp; اسحب ملفاً هنا للرفع
+      </p>
     </div>
   )
 }

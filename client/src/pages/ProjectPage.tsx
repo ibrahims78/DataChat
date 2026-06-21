@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowRight, Upload, MoreHorizontal, Download, FolderOpen } from 'lucide-react'
+import { ArrowRight, MoreHorizontal, Download, FolderOpen, Files } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useT } from '../i18n/translations'
 import api from '../lib/api'
@@ -59,6 +59,16 @@ export default function ProjectPage() {
   const [openFolderFiles, setOpenFolderFiles] = useState<FileInfo[]>([])
   const openFolderFilesRef = useRef<FileInfo[]>([])
   useEffect(() => { openFolderFilesRef.current = openFolderFiles }, [openFolderFiles])
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
+  const moreMenuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!showMoreMenu) return
+    const handler = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) setShowMoreMenu(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showMoreMenu])
   const tempAiIdRef = useRef<number>(0)
 
   // Queue refs (useRef to avoid stale closures inside async functions)
@@ -420,49 +430,63 @@ export default function ProjectPage() {
   return (
     <div className="flex h-screen flex-col font-cairo">
       <header className="flex items-center gap-3 px-4 py-3 bg-[var(--surface)] border-b border-[var(--border)] shrink-0">
-        <button onClick={() => navigate('/')} className="p-2 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors">
+        <button onClick={() => navigate('/')}
+          className="p-2 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors shrink-0"
+          title="العودة للمشاريع">
           <ArrowRight size={18} className={lang === 'ar' ? 'rotate-180' : ''} />
         </button>
 
         <div className="flex-1 min-w-0">
-          <h1 className="font-bold text-[var(--text)] truncate">{project.name}</h1>
-          <div className="flex items-center gap-3 text-xs text-[var(--muted)]">
-            {project.files.slice(0, 3).map((f, i) => (
-              <span key={i} className="flex items-center gap-1">
-                <span>{f.file_type === 'excel' ? '📊' : f.file_type === 'csv' ? '📋' : f.file_type === 'pdf' ? '📄' : f.file_type === 'html' ? '🌐' : '📝'}</span>
-                <span className="truncate max-w-24">{f.original_name}</span>
+          <h1 className="font-bold text-[var(--text)] truncate text-sm">{project.name}</h1>
+          <div className="flex items-center gap-2 mt-0.5">
+            {project.files.length > 0 && (
+              <span className="flex items-center gap-1 text-[11px] text-[var(--muted)] bg-[var(--bg)] px-2 py-0.5 rounded-full">
+                <Files size={11} />
+                {project.files.length} {project.files.length === 1 ? 'ملف' : 'ملف'}
               </span>
-            ))}
-            {project.files.length > 3 && <span>+{project.files.length - 3}</span>}
+            )}
+            {project.message_count > 0 && (
+              <span className="text-[11px] text-[var(--muted)]">
+                {project.message_count} رسالة
+              </span>
+            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          {/* Mobile: open file panel */}
           <button onClick={() => setShowMobilePanel(true)}
             className="md:hidden p-2 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors" title="الملفات">
             <FolderOpen size={18} />
           </button>
-          <button onClick={() => setShowUpload(true)}
-            className="flex items-center gap-2 btn-ghost text-sm px-3 py-2">
-            <Upload size={16} />
-            <span className="hidden sm:inline">{tr('uploadFile')}</span>
-          </button>
-          <div className="relative group">
-            <button className="p-2 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] transition-colors">
+
+          {/* Export / download menu — click controlled */}
+          <div className="relative" ref={moreMenuRef}>
+            <button
+              onClick={() => setShowMoreMenu(p => !p)}
+              className={`p-2 rounded-lg transition-colors ${showMoreMenu ? 'bg-[var(--bg)] text-[var(--text)]' : 'hover:bg-[var(--bg)] text-[var(--muted)]'}`}
+              title="تصدير وتحميل">
               <MoreHorizontal size={18} />
             </button>
-            <div className="absolute end-0 top-10 w-52 bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-lg py-1 z-20 hidden group-hover:block">
-              <button onClick={() => handleExport('pdf')} className="w-full flex items-center gap-2 px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)]">
-                <Download size={14} /> {tr('exportPDF')}
-              </button>
-              <button onClick={() => handleExport('txt')} className="w-full flex items-center gap-2 px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)]">
-                <Download size={14} /> {tr('exportTXT')}
-              </button>
-              <div className="border-t border-[var(--border)] my-1" />
-              <button onClick={handleDownloadZip} className="w-full flex items-center gap-2 px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)]">
-                <Download size={14} /> تحميل ملفات المشروع (ZIP)
-              </button>
-            </div>
+            {showMoreMenu && (
+              <div className="absolute end-0 top-10 w-56 bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-xl py-1 z-30 animate-fade-in">
+                <p className="text-[10px] text-[var(--muted)] px-4 pt-1 pb-0.5 font-semibold uppercase tracking-wide">تصدير المحادثة</p>
+                <button onClick={() => { handleExport('pdf'); setShowMoreMenu(false) }}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)] transition-colors">
+                  <Download size={14} /> {tr('exportPDF')}
+                </button>
+                <button onClick={() => { handleExport('txt'); setShowMoreMenu(false) }}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)] transition-colors">
+                  <Download size={14} /> {tr('exportTXT')}
+                </button>
+                <div className="border-t border-[var(--border)] my-1" />
+                <p className="text-[10px] text-[var(--muted)] px-4 pt-1 pb-0.5 font-semibold uppercase tracking-wide">الملفات</p>
+                <button onClick={() => { handleDownloadZip(); setShowMoreMenu(false) }}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)] transition-colors">
+                  <Download size={14} /> تحميل جميع الملفات (ZIP)
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
