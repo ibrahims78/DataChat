@@ -386,15 +386,105 @@ function styleExcelSheet(ws, headers, rows, opts = {}) {
 
   ws.views = [{ rightToLeft: true, state: 'frozen', ySplit: frozenRows }]
 
+  // ── Smart cell value + format detection ──
+  const DATE_RE = /^(\d{1,4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,4})$/
+  const TIME_RE = /^\d{1,2}:\d{2}(:\d{2})?$/
+  const NUM_RE  = /^-?[\d,٠-٩]+(\.\d+)?$/
+  const PCT_RE  = /^-?[\d.,٠-٩]+\s*%$/
+
+  // Convert Arabic-Indic numerals to Western
+  const toWestern = s => s.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+
+  // Detect if a header name implies dates
+  const isDateHeader = h => /تاريخ|date/i.test(String(h))
+  const isNumHeader  = h => /عدد|رقم|مسلسل|كمية|سعر|قيمة|مبلغ|count|qty|price|amount|no\.|num/i.test(String(h))
+  const isPctHeader  = h => /نسبة|%|percent/i.test(String(h))
+
+  function smartCell(rawVal, header) {
+    const v = rawVal === null || rawVal === undefined ? '' : rawVal
+    const s = String(v).trim()
+    if (s === '' || s === '-' || s === 'N/A') return { value: s }
+
+    // Already a real Date or Number from JSON
+    if (rawVal instanceof Date) return { value: rawVal, numFmt: 'dd/mm/yyyy' }
+    if (typeof rawVal === 'number') {
+      if (isPctHeader(header)) return { value: rawVal, numFmt: '0.00%' }
+      return { value: rawVal, numFmt: Number.isInteger(rawVal) ? '#,##0' : '#,##0.00' }
+    }
+
+    // Percentage string
+    if (PCT_RE.test(s)) {
+      const n = parseFloat(toWestern(s.replace('%', '').replace(/,/g, '')))
+      if (!isNaN(n)) return { value: n / 100, numFmt: '0.00%' }
+    }
+
+    // Date string detection
+    const dateMatch = s.match(DATE_RE)
+    if (dateMatch) {
+      const [, a, b, c] = dateMatch.map(x => parseInt(toWestern(x)))
+      let y, m, d
+      // Guess year: the part > 31 is the year
+      if (a > 31)      { y = a; m = b; d = c }
+      else if (c > 31) { y = c; m = b; d = a }
+      else             { y = c < 100 ? 2000 + c : c; m = b; d = a } // default dd/mm/yy
+      const dt = new Date(y, m - 1, d)
+      if (!isNaN(dt)) return { value: dt, numFmt: 'dd/mm/yyyy' }
+    }
+
+    // Header-hinted date with unusual format
+    if (isDateHeader(header) && /\d{4}/.test(s)) {
+      const dt = new Date(s)
+      if (!isNaN(dt)) return { value: dt, numFmt: 'dd/mm/yyyy' }
+    }
+
+    // Pure number string
+    if (NUM_RE.test(toWestern(s))) {
+      const n = parseFloat(toWestern(s.replace(/,/g, '')))
+      if (!isNaN(n)) {
+        if (isPctHeader(header)) return { value: n / 100, numFmt: '0.00%' }
+        if (isNumHeader(header)) return { value: n, numFmt: Number.isInteger(n) ? '#,##0' : '#,##0.00' }
+        // only convert to number if it looks like a count/id (no decimals, positive)
+        if (Number.isInteger(n) && n >= 0 && n < 1e9) return { value: n, numFmt: '#,##0' }
+        if (!Number.isInteger(n)) return { value: n, numFmt: '#,##0.00' }
+      }
+    }
+
+    return { value: s }
+  }
+
   // ── Data rows ──
   if (rows) {
-    rows.forEach((row, idx) => {
-      const r = ws.addRow(row)
+    rows.forEach((rowArr, idx) => {
+      const r = ws.addRow([]) // blank row, fill cells manually
       r.height = 20
       const isEven = idx % 2 === 0
-      r.eachCell({ includeEmpty: true }, cell => {
+      rowArr.forEach((rawVal, ci) => {
+        const header = headers ? headers[ci] : ''
+        const fmtAlias = opts.cellFormats && opts.cellFormats[ci]
+        const FMT_MAP = { date: 'dd/mm/yyyy', number: '#,##0', decimal: '#,##0.00', percent: '0.00%', text: '@' }
+        const explicitFmt = FMT_MAP[fmtAlias] || (fmtAlias && fmtAlias.includes('#') ? fmtAlias : null)
+        let { value, numFmt } = smartCell(rawVal, header)
+        if (explicitFmt) {
+          numFmt = explicitFmt
+          // Force date parsing when column is explicitly marked as date
+          if (fmtAlias === 'date' && typeof value === 'string' && value.trim()) {
+            const parsed = new Date(value.replace(/(\d{1,2})[\/\.](\d{1,2})[\/\.](\d{4})/, '$3-$2-$1'))
+            if (!isNaN(parsed)) value = parsed
+          }
+        }
+        const cell = r.getCell(ci + 1)
+        cell.value = value
+        if (numFmt) cell.numFmt = numFmt
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isEven ? theme.even : 'FFFFFFFF' } }
-        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true, readingOrder: 'rtl' }
+        // Right-align numbers/dates, centre everything else
+        const isNum  = typeof value === 'number'
+        const isDate = value instanceof Date
+        cell.alignment = {
+          horizontal: isNum || isDate ? 'center' : 'right',
+          vertical: 'middle',
+          wrapText: true,
+          readingOrder: 'rtl',
+        }
         cell.border = { bottom: thin(theme.border), right: thin(theme.border), left: thin(theme.border) }
         cell.font = { size: 10 }
       })
@@ -924,12 +1014,19 @@ router.post('/:projectId/message', async (req, res) => {
 - **subtitle**: عنوان فرعي — يُعرض تحت العنوان الرئيسي بلون أفتح
 - **headerGroups**: مصفوفة مجموعات تجمع الأعمدة تحت تسميات مشتركة — كل مجموعة: {"label":"الاسم","span":عدد_الأعمدة}
 - **headers**: أسماء الأعمدة (الصف الأخير من الرؤوس)
+- **cellFormats**: مصفوفة اختيارية تحدد صيغة Excel لكل عمود بالترتيب — القيم المقبولة: "date" أو "number" أو "decimal" أو "percent" أو "" (نص). مثال: ["","date","number","","percent"]
 - **rows**: بيانات الصفوف
+
+**قواعد البيانات في الصفوف — إلزامية:**
+- **التواريخ**: دائماً بصيغة ISO: "YYYY-MM-DD" (مثال: "2024-03-15") — لا تستخدم نصاً عربياً ولا أرقاماً منفردة
+- **الأرقام**: أرسلها كأرقام JSON حقيقية وليس نصوصاً: 1500 وليس "1500"
+- **النسب المئوية**: أرسلها كأرقام عشرية: 0.85 تعني 85% — أو نصاً: "85%"
 
 **قواعد التنسيق الاحترافي — إلزامية:**
 - عند طلب ملف احترافي أو رسمي: استخدم style:"blue" دائماً مع title وsubtitle
 - عند وجود ملف مرفوع: استخرج عنوان الجهة من الملف وضعه في title
 - عند وجود أعمدة مرتبطة: اجمعها في headerGroups (مثل: "بيانات الجهاز" تجمع 5 أعمدة، "الحالة الفنية" تجمع 3 أعمدة)
+- عند وجود أعمدة تواريخ أو أرقام أو نسب مئوية: حدد cellFormats لضمان التنسيق الصحيح في Excel
 - لا تترك title وsubtitle فارغين عند الطلبات الرسمية أو الحكومية
 
 ### صيغة ملف PDF (أضفها في آخر ردك):
@@ -1267,6 +1364,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
               style:        sheet.style        || excelData.style        || 'blue',
               headerGroups: sheet.headerGroups || null,
               columnWidths: sheet.columnWidths || null,
+              cellFormats:  sheet.cellFormats  || excelData.cellFormats  || null,
             })
           }
           const genDir = path.join(__dirname, '../../../uploads/generated')
@@ -1730,7 +1828,14 @@ router.post('/:projectId/submit-response', async (req, res) => {
           wb.creator = 'DataChat'
           for (const sheet of excelData.sheets) {
             const ws = wb.addWorksheet(sheet.name || 'ورقة 1')
-            styleExcelSheet(ws, sheet.headers || [], sheet.rows || [])
+            styleExcelSheet(ws, sheet.headers || [], sheet.rows || [], {
+              title:        sheet.title        || excelData.title        || null,
+              subtitle:     sheet.subtitle     || excelData.subtitle     || null,
+              style:        sheet.style        || excelData.style        || 'blue',
+              headerGroups: sheet.headerGroups || null,
+              columnWidths: sheet.columnWidths || null,
+              cellFormats:  sheet.cellFormats  || excelData.cellFormats  || null,
+            })
           }
           const genDir = path.join(__dirname, '../../../uploads/generated')
           if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true })
