@@ -9,9 +9,11 @@ import type { FolderEntry } from '../../lib/useFolderSync'
 
 interface Props {
   projectId: number
-  onRefresh:       () => void
-  onOpenImport:    (folderName: string) => void
+  onRefresh:          () => void
+  onOpenImport:       (folderName: string) => void
   onOpenCapabilities: () => void
+  onSyncAll?:         () => void
+  isSyncing?:         boolean
 }
 
 // ── Per-folder row ────────────────────────────────────────────────────────────
@@ -115,7 +117,7 @@ function FolderRow({
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export default function FolderSyncSection({ onRefresh, onOpenImport, onOpenCapabilities }: Props) {
+export default function FolderSyncSection({ onRefresh, onOpenImport, onOpenCapabilities, onSyncAll, isSyncing }: Props) {
   const { isSupported, loading, folders, addFolder, removeFolder, requestPermission, toggleDatedSave } =
     useFolderSyncContext()
 
@@ -141,6 +143,15 @@ export default function FolderSyncSection({ onRefresh, onOpenImport, onOpenCapab
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {onSyncAll && folders.some(f => f.perm === 'granted') && (
+            <button onClick={onSyncAll} disabled={isSyncing} title="مزامنة ملفات المجلد مع المشروع"
+              className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/40
+                         text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60
+                         text-[11px] font-medium transition-colors disabled:opacity-60">
+              <RefreshCw size={11} className={isSyncing ? 'animate-spin' : ''} />
+              {isSyncing ? 'جارٍ...' : 'مزامنة'}
+            </button>
+          )}
           <button onClick={onOpenCapabilities} title="دليل الإمكانيات"
             className="p-1 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] hover:text-primary-500 transition-colors">
             <Info size={12} />

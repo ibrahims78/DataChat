@@ -33,6 +33,8 @@ interface Props {
   onBatchAnalyze?: (msg: string) => void
   mobileOpen?: boolean
   onMobileClose?: () => void
+  onSyncAll?: () => void
+  isSyncing?: boolean
 }
 
 const typeIcons: Record<string, string> = { excel: '📊', csv: '📋', pdf: '📄', word: '📝', html: '🌐', markdown: '📑', text: '📃', json: '🗂️' }
@@ -49,7 +51,7 @@ function fileName(f: FileItem | GenFile) {
   return f.display_name || f.original_name
 }
 
-export default function FilePanel({ files, generatedFiles, folders, projectId, onRefresh, onUpload, onBatchAnalyze, mobileOpen = false, onMobileClose }: Props) {
+export default function FilePanel({ files, generatedFiles, folders, projectId, onRefresh, onUpload, onBatchAnalyze, mobileOpen = false, onMobileClose, onSyncAll, isSyncing }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [collapsedFolders, setCollapsedFolders] = useState<Set<number>>(new Set())
   const [importFolder, setImportFolder] = useState<string | null>(null)
@@ -439,6 +441,8 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
         onRefresh={onRefresh}
         onOpenImport={setImportFolder}
         onOpenCapabilities={() => setShowCapabilities(true)}
+        onSyncAll={onSyncAll}
+        isSyncing={isSyncing}
       />
 
       <div className="flex-1 overflow-y-auto p-2 space-y-3">

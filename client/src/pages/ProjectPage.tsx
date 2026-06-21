@@ -10,6 +10,7 @@ import ChatMessages from '../components/chat/ChatMessages'
 import ChatInput from '../components/chat/ChatInput'
 import FileUploadModal from '../components/files/FileUploadModal'
 import { useFolderSyncContext } from '../contexts/FolderSyncContext'
+import { uploadChunked } from '../lib/uploadChunked'
 
 interface Project {
   id: number; name: string; user_id: number
@@ -23,9 +24,20 @@ export default function ProjectPage() {
   const { lang } = useTheme()
   const tr = useT(lang)
 
-  const { saveFile: saveFolderFile, folderName, permState: folderPermState } = useFolderSyncContext()
+  const {
+    saveFile: saveFolderFile, folderName, permState: folderPermState,
+    listAllFiles, createDirectory, writeFileContent, primaryFolder
+  } = useFolderSyncContext()
   const saveFolderFileRef = useRef(saveFolderFile)
+  const listAllFilesRef = useRef(listAllFiles)
+  const createDirectoryRef = useRef(createDirectory)
+  const writeFileContentRef = useRef(writeFileContent)
+  const primaryFolderRef = useRef(primaryFolder)
   useEffect(() => { saveFolderFileRef.current = saveFolderFile }, [saveFolderFile])
+  useEffect(() => { listAllFilesRef.current = listAllFiles }, [listAllFiles])
+  useEffect(() => { createDirectoryRef.current = createDirectory }, [createDirectory])
+  useEffect(() => { writeFileContentRef.current = writeFileContent }, [writeFileContent])
+  useEffect(() => { primaryFolderRef.current = primaryFolder }, [primaryFolder])
   const folderActiveRef = useRef(false)
   useEffect(() => { folderActiveRef.current = folderPermState === 'granted' && !!folderName }, [folderPermState, folderName])
 
@@ -40,6 +52,7 @@ export default function ProjectPage() {
   const [contentPreviews, setContentPreviews] = useState<Record<number, { html: string; previewType: string; filename: string }>>({})
   const [showMobilePanel, setShowMobilePanel] = useState(false)
   const [queueCount, setQueueCount] = useState(0)
+  const [isSyncing, setIsSyncing] = useState(false)
   const tempAiIdRef = useRef<number>(0)
 
   // Queue refs (useRef to avoid stale closures inside async functions)
@@ -95,6 +108,39 @@ export default function ProjectPage() {
     return () => { if (pollTimer) clearTimeout(pollTimer) }
   }, [id])
 
+  const syncFolderToProject = useCallback(async (silent = false) => {
+    if (folderPermState !== 'granted' || !id) return
+    setIsSyncing(true)
+    const toastId = silent ? null : toast.loading('جاري مزامنة ملفات المجلد...')
+    try {
+      const allFiles = await listAllFilesRef.current(true)
+      const SUPPORTED = new Set(['xlsx','xlsm','xls','csv','pdf','docx','doc','md','txt','json','html','htm','jpg','jpeg','png','gif','webp','bmp','tiff','tif','heic','heif'])
+      const projectFileNames = new Set((project?.files || []).map((f: any) => f.original_name))
+      const toUpload = allFiles.filter(f => {
+        const ext = f.name.split('.').pop()?.toLowerCase() || ''
+        return SUPPORTED.has(ext) && !projectFileNames.has(f.name)
+      })
+      if (toUpload.length === 0) {
+        if (toastId) { toast.dismiss(toastId); toast('لا توجد ملفات جديدة للمزامنة', { icon: 'ℹ️' }) }
+        return
+      }
+      let done = 0
+      for (const fi of toUpload) {
+        try {
+          const file = await fi.fileHandle.getFile()
+          await uploadChunked(file, parseInt(id), () => {})
+          done++
+        } catch {}
+      }
+      await fetchProject()
+      if (toastId) { toast.dismiss(toastId); toast.success(`✅ تمت مزامنة ${done} ملف من المجلد`) }
+    } catch {
+      if (toastId) { toast.dismiss(toastId); toast.error('فشل مزامنة المجلد') }
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [folderPermState, id, project])
+
   const sendMessageInternal = useCallback(async (content: string, pendingMsgId?: number) => {
     const convId = conversationIdRef.current
     if (!convId) return
@@ -120,13 +166,22 @@ export default function ProjectPage() {
 
     const token = localStorage.getItem('token')
 
+    // Collect linked folder file list to pass to AI context
+    let folderFiles: Array<{name: string; path: string; size: number; lastModified: number}> = []
+    if (folderActiveRef.current) {
+      try {
+        const files = await listAllFilesRef.current(true)
+        folderFiles = files.map(f => ({ name: f.name, path: f.path, size: f.size, lastModified: f.lastModified }))
+      } catch {}
+    }
+
     try {
       // ── Server-side SSE stream (Gemini / OpenAI) ──
       {
         const response = await fetch(`/api/chat/${projectIdRef.current}/message`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ message: content, conversationId: convId })
+          body: JSON.stringify({ message: content, conversationId: convId, folderFiles })
         })
 
         if (response.status === 401) {
@@ -176,6 +231,21 @@ export default function ProjectPage() {
               } else if (data.type === 'content_preview') {
                 const tempId = tempAiIdRef.current
                 setContentPreviews(prev => ({ ...prev, [tempId]: { html: data.html, previewType: data.previewType, filename: data.filename } }))
+              } else if (data.type === 'folder_action') {
+                if (data.action === 'create_dir' && data.path) {
+                  const fname = primaryFolderRef.current?.name || ''
+                  const result = await createDirectoryRef.current(fname, data.path)
+                  if (result === 'created') toast.success(`✅ تم إنشاء مجلد "${data.path}" في المجلد المرتبط`)
+                  else if (result !== 'no_folder') toast.error(`فشل إنشاء المجلد "${data.path}"`)
+                } else if (data.action === 'write_file' && data.path) {
+                  const mimeMap: Record<string, string> = { txt: 'text/plain', md: 'text/markdown', html: 'text/html', json: 'application/json', csv: 'text/csv' }
+                  const ext = data.path.split('.').pop()?.toLowerCase() || 'txt'
+                  const mime = mimeMap[ext] || 'text/plain'
+                  const fname = primaryFolderRef.current?.name || ''
+                  const result = await writeFileContentRef.current(fname, data.path, data.content || '', mime)
+                  if (result === 'saved') toast.success(`✅ تم كتابة "${data.path}" في المجلد المرتبط`)
+                  else if (result !== 'no_folder') toast.error(`فشل كتابة الملف "${data.path}"`)
+                }
               } else if (data.type === 'done') {
                 if (data.generatedFile) {
                   setProject(p => p ? { ...p, generated_files: [...p.generated_files, data.generatedFile] } : p)
@@ -400,6 +470,8 @@ export default function ProjectPage() {
           onBatchAnalyze={(msg) => sendMessage(msg)}
           mobileOpen={showMobilePanel}
           onMobileClose={() => setShowMobilePanel(false)}
+          onSyncAll={syncFolderToProject}
+          isSyncing={isSyncing}
         />
       </div>
 

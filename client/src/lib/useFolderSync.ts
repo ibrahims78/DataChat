@@ -101,9 +101,12 @@ export interface FolderSyncAPI {
   toggleDatedSave:    (name: string)                 => Promise<void>
 
   // File operations
-  saveFile:     (filename: string, blob: Blob, opts?: SaveFileOpts) => Promise<SaveResult>
-  listFiles:    (folderName: string, recursive?: boolean)           => Promise<FileInfo[]>
-  readFileBlob: (fh: FileSystemFileHandle)                          => Promise<Blob | null>
+  saveFile:          (filename: string, blob: Blob, opts?: SaveFileOpts)                              => Promise<SaveResult>
+  listFiles:         (folderName: string, recursive?: boolean)                                        => Promise<FileInfo[]>
+  listAllFiles:      (recursive?: boolean)                                                            => Promise<FileInfo[]>
+  readFileBlob:      (fh: FileSystemFileHandle)                                                       => Promise<Blob | null>
+  createDirectory:   (folderName: string, dirPath: string)                                            => Promise<'created' | 'no_folder' | 'denied' | 'error'>
+  writeFileContent:  (folderName: string, filePath: string, content: string | Blob, mimeType?: string) => Promise<SaveResult>
 
   // Legacy — single-folder compat (used by ProjectPage auto-save)
   pickFolder:         ()                             => Promise<void>
@@ -304,6 +307,71 @@ export function useFolderSync(): FolderSyncAPI {
     } catch { return null }
   }, [])
 
+  const listAllFiles = useCallback(async (recursive = false): Promise<FileInfo[]> => {
+    const all: FileInfo[] = []
+    for (const entry of folders) {
+      try {
+        let perm = await entry.handle.queryPermission({ mode: 'read' })
+        if (perm !== 'granted') perm = await entry.handle.requestPermission({ mode: 'read' })
+        if (perm !== 'granted') continue
+        const files = await listDirFiles(entry.handle, '', recursive)
+        all.push(...files)
+      } catch {}
+    }
+    return all
+  }, [folders])
+
+  const createDirectory = useCallback(async (folderName: string, dirPath: string): Promise<'created' | 'no_folder' | 'denied' | 'error'> => {
+    const entry = folders.find(f => f.name === folderName) ?? (folders[0] ?? null)
+    if (!entry) return 'no_folder'
+    try {
+      let perm = await entry.handle.queryPermission({ mode: 'readwrite' })
+      if (perm !== 'granted') perm = await entry.handle.requestPermission({ mode: 'readwrite' })
+      if (perm !== 'granted') return 'denied'
+      const parts = dirPath.split('/').filter(Boolean)
+      let current: FileSystemDirectoryHandle = entry.handle
+      for (const part of parts) {
+        current = await current.getDirectoryHandle(sanitize(part), { create: true })
+      }
+      return 'created'
+    } catch (e: any) {
+      if (e?.name === 'NotAllowedError') return 'denied'
+      console.error('createDirectory error:', e)
+      return 'error'
+    }
+  }, [folders])
+
+  const writeFileContent = useCallback(async (
+    folderName: string,
+    filePath: string,
+    content: string | Blob,
+    mimeType = 'text/plain'
+  ): Promise<SaveResult> => {
+    const entry = folders.find(f => f.name === folderName) ?? (folders[0] ?? null)
+    if (!entry) return 'no_folder'
+    try {
+      let perm = await entry.handle.queryPermission({ mode: 'readwrite' })
+      if (perm !== 'granted') perm = await entry.handle.requestPermission({ mode: 'readwrite' })
+      if (perm !== 'granted') return 'denied'
+      const parts = filePath.split('/').filter(Boolean)
+      const fileName = parts.pop()!
+      let dir: FileSystemDirectoryHandle = entry.handle
+      for (const part of parts) {
+        dir = await dir.getDirectoryHandle(sanitize(part), { create: true })
+      }
+      const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType })
+      const fh = await dir.getFileHandle(sanitize(fileName), { create: true })
+      const writable = await fh.createWritable()
+      await writable.write(blob)
+      await writable.close()
+      return 'saved'
+    } catch (e: any) {
+      if (e?.name === 'NotAllowedError') return 'denied'
+      console.error('writeFileContent error:', e)
+      return 'error'
+    }
+  }, [folders])
+
   // ── Legacy compat ─────────────────────────────────────────────────────────────
   const primaryFolder = folders.find(f => f.perm === 'granted') ?? (folders[0] ?? null)
 
@@ -333,7 +401,10 @@ export function useFolderSync(): FolderSyncAPI {
     toggleDatedSave,
     saveFile,
     listFiles,
+    listAllFiles,
     readFileBlob,
+    createDirectory,
+    writeFileContent,
     pickFolder,
     removeFolder_,
     requestPermission_,
