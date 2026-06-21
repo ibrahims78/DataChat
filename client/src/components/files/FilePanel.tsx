@@ -9,6 +9,7 @@ import { useT } from '../../i18n/translations'
 import api from '../../lib/api'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../ui/ConfirmModal'
+import FolderSyncSection from './FolderSyncSection'
 
 interface FolderItem { id: number; name: string; sort_order: number }
 interface FileItem {
@@ -426,6 +427,9 @@ export default function FilePanel({ files, generatedFiles, folders, projectId, o
             )}
           </div>
         </div>
+
+      {/* Folder sync section */}
+      <FolderSyncSection />
 
       <div className="flex-1 overflow-y-auto p-2 space-y-3">
 

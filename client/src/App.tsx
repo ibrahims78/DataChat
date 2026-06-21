@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { FolderSyncProvider } from './contexts/FolderSyncContext'
 import SetupPage from './pages/SetupPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
@@ -27,6 +28,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
+        <FolderSyncProvider>
         <BrowserRouter>
           <Routes>
             <Route path="/setup" element={<SetupPage />} />
@@ -46,6 +48,7 @@ export default function App() {
             style: { fontFamily: 'Cairo, sans-serif', fontSize: '14px' },
           }}
         />
+        </FolderSyncProvider>
       </AuthProvider>
     </ThemeProvider>
   )

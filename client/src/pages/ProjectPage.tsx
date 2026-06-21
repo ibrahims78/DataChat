@@ -9,6 +9,7 @@ import FilePanel from '../components/files/FilePanel'
 import ChatMessages from '../components/chat/ChatMessages'
 import ChatInput from '../components/chat/ChatInput'
 import FileUploadModal from '../components/files/FileUploadModal'
+import { useFolderSyncContext } from '../contexts/FolderSyncContext'
 
 interface Project {
   id: number; name: string; user_id: number
@@ -21,6 +22,12 @@ export default function ProjectPage() {
   const navigate = useNavigate()
   const { lang } = useTheme()
   const tr = useT(lang)
+
+  const { saveFile: saveFolderFile, folderName, permState: folderPermState } = useFolderSyncContext()
+  const saveFolderFileRef = useRef(saveFolderFile)
+  useEffect(() => { saveFolderFileRef.current = saveFolderFile }, [saveFolderFile])
+  const folderActiveRef = useRef(false)
+  useEffect(() => { folderActiveRef.current = folderPermState === 'granted' && !!folderName }, [folderPermState, folderName])
 
   const [project, setProject] = useState<Project | null>(null)
   const [loading, setLoading] = useState(true)
@@ -172,7 +179,27 @@ export default function ProjectPage() {
               } else if (data.type === 'done') {
                 if (data.generatedFile) {
                   setProject(p => p ? { ...p, generated_files: [...p.generated_files, data.generatedFile] } : p)
-                  toast.success('✅ الملف جاهز للتحميل — راجع قسم "النتائج المُولَّدة" في لوحة الملفات', { duration: 5000 })
+                  // Auto-save to linked folder if active
+                  if (folderActiveRef.current) {
+                    const gf = data.generatedFile
+                    const tk = localStorage.getItem('token')
+                    fetch(`/api/files/generated/${gf.id}/download?token=${encodeURIComponent(tk ?? '')}`)
+                      .then(r => r.ok ? r.blob() : null)
+                      .then(async blob => {
+                        if (!blob) return
+                        const result = await saveFolderFileRef.current(gf.original_name, blob)
+                        if (result === 'saved') {
+                          toast.success(`✅ تم حفظ "${gf.original_name}" في المجلد المرتبط`, { duration: 4000 })
+                        } else {
+                          toast.success('✅ الملف جاهز للتحميل — راجع قسم "النتائج المُولَّدة" في لوحة الملفات', { duration: 5000 })
+                        }
+                      })
+                      .catch(() => {
+                        toast.success('✅ الملف جاهز للتحميل — راجع قسم "النتائج المُولَّدة" في لوحة الملفات', { duration: 5000 })
+                      })
+                  } else {
+                    toast.success('✅ الملف جاهز للتحميل — راجع قسم "النتائج المُولَّدة" في لوحة الملفات', { duration: 5000 })
+                  }
                 }
                 if (data.messageId) {
                   const tempId = tempAiIdRef.current
