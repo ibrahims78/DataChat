@@ -266,9 +266,9 @@ export default function ProjectPage() {
     sendMessageInternal(content)
   }, [sendMessageInternal])
 
-  const handleFileUploaded = async (_file: any) => {
+  const handleFileUploaded = async (_file: any, silent = false) => {
     await fetchProject()
-    toast.success(tr('uploadSuccess'))
+    if (!silent) toast.success(tr('uploadSuccess'))
   }
 
   const handleExport = async (format: string) => {
