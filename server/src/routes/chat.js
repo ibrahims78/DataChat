@@ -419,10 +419,10 @@ async function executeDriveFunction(name, args, userId, projectId) {
       let content = ''
       try {
         if (['xlsx', 'xls', 'xlsm', 'ods'].includes(ext)) {
-          const wb = xlsx.read(buffer, { type: 'buffer' })
+          const wb = XLSX.read(buffer, { type: 'buffer' })
           for (const sheetName of wb.SheetNames) {
             const ws = wb.Sheets[sheetName]
-            const rows = xlsx.utils.sheet_to_json(ws, { header: 1, defval: '' })
+            const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
             content += `\n[ورقة: ${sheetName}]\n`
             content += rows.slice(0, 500).map(r => Array.isArray(r) ? r.join('\t') : '').join('\n')
           }
@@ -430,7 +430,7 @@ async function executeDriveFunction(name, args, userId, projectId) {
           const r = await mammoth.extractRawText({ buffer })
           content = r.value
         } else if (ext === 'pdf') {
-          const pdfData = await pdf(buffer)
+          const pdfData = await pdfParse(buffer)
           content = pdfData.text
         } else if (['txt', 'md', 'json', 'html', 'htm', 'csv', 'tsv', 'xml', 'yaml', 'yml'].includes(ext)) {
           content = buffer.toString('utf8')
@@ -2136,14 +2136,14 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       cleanResponse = cleanResponse.replace(/\[FOLDER_CREATE_DIR:[^\]]+\]/g, '').trim()
 
       // Handle [FOLDER_WRITE_FILE:path|content] tags
-      const writeFileRegex = /\[FOLDER_WRITE_FILE:([^|]+)\|([\s\S]*?)\](?=\n|$)/g
+      const writeFileRegex = /\[FOLDER_WRITE_FILE:([^|]+)\|([\s\S]*?)\]/g
       while ((m = writeFileRegex.exec(cleanResponse)) !== null) {
         const filePath = m[1].trim()
         const content = m[2]
         res.write(`data: ${JSON.stringify({ type: 'folder_action', action: 'write_file', path: filePath, content })}\n\n`)
         console.log(`[FOLDER] write_file: ${filePath}`)
       }
-      cleanResponse = cleanResponse.replace(/\[FOLDER_WRITE_FILE:[^|]+\|[\s\S]*?\](?=\n|$)/g, '').trim()
+      cleanResponse = cleanResponse.replace(/\[FOLDER_WRITE_FILE:[^|]+\|[\s\S]*?\]/g, '').trim()
 
       // Handle [FOLDER_WRITE_DOCX:path|markdown_content] tags
       const writeDocxRegex = /\[FOLDER_WRITE_DOCX:([^|]+)\|([\s\S]*?)\[\/FOLDER_WRITE_DOCX\]/g

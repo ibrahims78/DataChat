@@ -271,6 +271,7 @@ export default function ProjectPage() {
                   importDriveFileToProject: 'جارٍ استيراد الملف…',
                   uploadGeneratedFileToDrive: 'جارٍ الرفع إلى Drive…',
                   moveDriveFile: 'جارٍ النقل…',
+                  readDriveFileContent: 'جارٍ قراءة محتوى الملف…',
                 }
                 setTypingStep(actionNames[data.action] || 'جارٍ تنفيذ عملية Drive…')
               } else if (data.type === 'drive_action_done') {
