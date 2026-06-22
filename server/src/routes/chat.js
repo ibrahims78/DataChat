@@ -415,16 +415,32 @@ async function executeDriveFunction(name, args, userId, projectId) {
         const resp = await drive.files.get({ fileId: args.fileId, alt: 'media' }, { responseType: 'arraybuffer' })
         buffer = Buffer.from(resp.data)
       }
-      const MAX_CONTENT = 80000
+      const MAX_CONTENT = 200000
       let content = ''
       try {
         if (['xlsx', 'xls', 'xlsm', 'ods'].includes(ext)) {
           const wb = XLSX.read(buffer, { type: 'buffer' })
+          content = `[ملف Excel: ${args.fileName || fileMeta.name}]\n`
           for (const sheetName of wb.SheetNames) {
             const ws = wb.Sheets[sheetName]
-            const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
-            content += `\n[ورقة: ${sheetName}]\n`
-            content += rows.slice(0, 500).map(r => Array.isArray(r) ? r.join('\t') : '').join('\n')
+            const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+            if (!data.length) continue
+            const headers = data[0]
+            const rows = data.slice(1)
+            const totalRows = rows.length
+            const emptyCounts = headers.map((_, ci) => rows.filter(r => r[ci] === '' || r[ci] == null).length)
+            const summaryLines = headers.map((h, ci) => `  - ${h}: ${emptyCounts[ci]} فارغ من ${totalRows}`)
+            const summary = `\nورقة: ${sheetName} — ${totalRows} صف × ${headers.length} عمود\nجودة البيانات:\n${summaryLines.join('\n')}\n\nالبيانات:\n`
+            const csvHeader = headers.map(h => String(h).includes(',') ? `"${h}"` : String(h)).join(',')
+            let csvRows = rows.map(r => headers.map((_, ci) => { const v = String(r[ci] ?? ''); return v.includes(',') ? `"${v}"` : v }).join(',')).join('\n')
+            const used = content.length + summary.length + csvHeader.length + 1
+            if (MAX_CONTENT - used <= 0) { content += `\nورقة: ${sheetName} — تجاوز الحد (${totalRows} صف)\n`; continue }
+            if (csvRows.length > MAX_CONTENT - used) {
+              const cut = csvRows.lastIndexOf('\n', MAX_CONTENT - used)
+              const kept = (csvRows.substring(0, cut).match(/\n/g) || []).length + 1
+              csvRows = csvRows.substring(0, cut) + `\n[تحذير: عُرض ${kept} صف من أصل ${totalRows}]`
+            }
+            content += summary + csvHeader + '\n' + csvRows + '\n'
           }
         } else if (['docx', 'doc'].includes(ext)) {
           const r = await mammoth.extractRawText({ buffer })
@@ -441,7 +457,8 @@ async function executeDriveFunction(name, args, userId, projectId) {
         return { error: `فشل قراءة الملف: ${e.message}` }
       }
       if (content.length > MAX_CONTENT) {
-        content = content.slice(0, MAX_CONTENT) + '\n\n[... محتوى مقتطع — الملف أكبر من الحد المسموح به ...]'
+        const cut = content.lastIndexOf('\n', MAX_CONTENT)
+        content = content.substring(0, cut) + '\n\n[... محتوى مقتطع — الملف أكبر من الحد المسموح به ...]'
       }
       return { success: true, fileName: args.fileName || fileMeta.name, sizeBytes: buffer.length, content }
     }
@@ -475,50 +492,76 @@ function resolveFileUrl(file) {
 
 async function extractDriveContent(buffer, name, mimeType) {
   const ext = (name.split('.').pop() || '').toLowerCase()
+  const CHAR_BUDGET = 200000
   try {
     if (mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || ext === 'xlsx' || ext === 'xls') {
       const wb = XLSX.read(buffer, { type: 'buffer' })
       let content = `[ملف Drive Excel: ${name}]\n`
-      const CHAR_BUDGET = 200000
       wb.SheetNames.forEach(sheetName => {
         const ws = wb.Sheets[sheetName]
         const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
         if (!data.length) return
         const headers = data[0]
         const rows = data.slice(1)
+        const totalRows = rows.length
+        const totalCols = headers.length
+        // Data quality summary (empty cells per column)
+        const emptyCounts = headers.map((_, ci) => rows.filter(r => r[ci] === '' || r[ci] == null).length)
+        const summaryLines = headers.map((h, ci) => `  - ${h}: ${emptyCounts[ci]} فارغ من ${totalRows}`)
+        const summary = `ورقة: ${sheetName}\nالإجمالي: ${totalRows} صف × ${totalCols} عمود\nجودة البيانات (الخلايا الفارغة):\n${summaryLines.join('\n')}\n\nالبيانات الكاملة (CSV):\n`
         const csvHeader = headers.map(h => String(h).includes(',') ? `"${h}"` : String(h)).join(',')
         let csvRows = rows.map(row =>
           headers.map((_, ci) => { const v = String(row[ci] ?? ''); return v.includes(',') ? `"${v}"` : v }).join(',')
         ).join('\n')
-        const used = content.length + csvHeader.length + 1
-        if (CHAR_BUDGET - used <= 0) return
+        const used = content.length + summary.length + csvHeader.length + 1
+        if (CHAR_BUDGET - used <= 0) {
+          content += `\nورقة: ${sheetName} — تجاوز الحد (${totalRows} صف)\n`
+          return
+        }
         if (csvRows.length > CHAR_BUDGET - used) {
           const cut = csvRows.lastIndexOf('\n', CHAR_BUDGET - used)
-          csvRows = csvRows.substring(0, cut) + '\n[مقتطع...]'
+          const keptLines = (csvRows.substring(0, cut).match(/\n/g) || []).length + 1
+          csvRows = csvRows.substring(0, cut) + `\n[تحذير: عُرض ${keptLines} صف من أصل ${totalRows} — يُنصح بتقسيم الملف]`
         }
-        content += `ورقة: ${sheetName}\n${csvHeader}\n${csvRows}\n`
+        content += summary + csvHeader + '\n' + csvRows + '\n'
       })
       return content
     }
     if (mimeType === 'text/csv' || ext === 'csv') {
-      const text = buffer.toString('utf8')
-      return `[ملف Drive CSV: ${name}]\n${text.substring(0, 200000)}`
+      const raw = buffer.toString('utf8')
+      const lines = raw.split('\n')
+      const totalRows = lines.length - 1
+      const header = `[ملف Drive CSV: ${name}]\nإجمالي الصفوف التقريبي: ${totalRows}\n\n`
+      const budget = CHAR_BUDGET - header.length
+      if (raw.length <= budget) return header + raw
+      const cut = raw.lastIndexOf('\n', budget)
+      const keptLines = (raw.substring(0, cut).match(/\n/g) || []).length
+      return header + raw.substring(0, cut) + `\n[تحذير: عُرض ${keptLines} صف من أصل ${totalRows} بسبب حجم البيانات]`
     }
     if (mimeType === 'application/pdf' || ext === 'pdf') {
       const data = await pdfParse(buffer)
-      const CHAR_BUDGET = 200000
       const text = data.text
-      const header = `[ملف Drive PDF: ${name}]\nالصفحات: ${data.numpages}\n\n`
-      return header + (text.length > CHAR_BUDGET ? text.substring(0, CHAR_BUDGET) + '\n[مقتطع...]' : text)
+      const wordCount = text.trim().split(/\s+/).length
+      const header = `[ملف Drive PDF: ${name}]\nالصفحات: ${data.numpages} | الكلمات التقريبية: ${wordCount}\n\n`
+      if (header.length + text.length <= CHAR_BUDGET) return header + text
+      const cut = text.lastIndexOf('\n', CHAR_BUDGET - header.length)
+      return header + text.substring(0, cut) + `\n[تحذير: عُرض ${cut} حرف من أصل ${text.length} — الملف كبير]`
     }
     if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || ext === 'docx') {
       const result = await mammoth.extractRawText({ buffer })
       const text = result.value
-      return `[ملف Drive Word: ${name}]\n${text.substring(0, 200000)}`
+      const wordCount = text.trim().split(/\s+/).length
+      const header = `[ملف Drive Word: ${name}]\nالكلمات التقريبية: ${wordCount}\n\n`
+      if (header.length + text.length <= CHAR_BUDGET) return header + text
+      const cut = text.lastIndexOf('\n', CHAR_BUDGET - header.length)
+      return header + text.substring(0, cut) + `\n[تحذير: عُرض جزء من الملف — ${cut} حرف من أصل ${text.length}]`
     }
     if (mimeType === 'text/plain' || ext === 'txt' || ext === 'md' || ext === 'json' || ext === 'html') {
       const text = buffer.toString('utf8')
-      return `[ملف Drive نصي: ${name}]\n${text.substring(0, 200000)}`
+      const header = `[ملف Drive نصي: ${name}]\n`
+      if (header.length + text.length <= CHAR_BUDGET) return header + text
+      const cut = text.lastIndexOf('\n', CHAR_BUDGET - header.length)
+      return header + text.substring(0, cut) + `\n[تحذير: عُرض جزء من الملف — ${cut} حرف من أصل ${text.length}]`
     }
     return `[ملف Drive: ${name} — نوع غير مدعوم للقراءة المباشرة: ${mimeType}]`
   } catch (e) {
