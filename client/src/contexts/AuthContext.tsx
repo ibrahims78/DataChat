@@ -27,12 +27,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const savedToken = localStorage.getItem('token')
-    const savedUser = localStorage.getItem('user')
-    if (savedToken && savedUser) {
-      setToken(savedToken)
-      setUser(JSON.parse(savedUser))
+    if (!savedToken) {
+      setIsLoading(false)
+      return
     }
-    setIsLoading(false)
+    // Verify token and get fresh user data from server
+    api.get('/auth/me', { headers: { Authorization: `Bearer ${savedToken}` } })
+      .then(res => {
+        setToken(savedToken)
+        setUser(res.data)
+        localStorage.setItem('user', JSON.stringify(res.data))
+      })
+      .catch(() => {
+        // Token invalid or user disabled — clear session
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+      })
+      .finally(() => setIsLoading(false))
   }, [])
 
   useEffect(() => {

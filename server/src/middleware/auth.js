@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken')
 const db = require('../lib/db')
 const JWT_SECRET = process.env.JWT_SECRET || 'datachat-secret-key-change-in-production'
 
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
   // Accept token from Authorization header OR ?token= query param (for file downloads)
   let token = null
   const authHeader = req.headers.authorization
@@ -17,9 +17,16 @@ function authenticate(req, res, next) {
   }
   try {
     const decoded = jwt.verify(token, JWT_SECRET)
-    req.user = decoded
-    // Update last_seen_at in background (non-blocking)
-    db.query('UPDATE users SET last_seen_at = NOW() WHERE id = $1', [decoded.id]).catch(() => {})
+    // Verify user is still active AND update last_seen_at in one query
+    const result = await db.query(
+      'UPDATE users SET last_seen_at = NOW() WHERE id = $1 AND is_active = true RETURNING id, role',
+      [decoded.id]
+    )
+    if (!result.rows.length) {
+      return res.status(401).json({ error: 'Account disabled or not found' })
+    }
+    // Use fresh role from DB (in case admin changed it)
+    req.user = { ...decoded, role: result.rows[0].role }
     next()
   } catch {
     return res.status(401).json({ error: 'Invalid token' })

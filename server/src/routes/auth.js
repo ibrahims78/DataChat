@@ -76,15 +76,29 @@ router.post('/forgot-password', async (req, res) => {
   }
 })
 
+router.post('/verify-reset-token', async (req, res) => {
+  try {
+    const { token } = req.body
+    if (!token) return res.status(400).json({ error: 'Token required' })
+    const result = await db.query('SELECT id FROM reset_tokens WHERE token=$1 AND used=false AND expires_at > NOW()', [token])
+    if (!result.rows.length) return res.status(400).json({ error: 'رابط غير صالح أو منتهي الصلاحية' })
+    res.json({ valid: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 router.post('/reset-password', async (req, res) => {
   try {
     const { token, password } = req.body
+    if (!token || !password) return res.status(400).json({ error: 'جميع الحقول مطلوبة' })
+    if (password.length < 8) return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' })
     const result = await db.query('SELECT * FROM reset_tokens WHERE token=$1 AND used=false AND expires_at > NOW()', [token])
-    if (!result.rows.length) return res.status(400).json({ error: 'Invalid or expired token' })
+    if (!result.rows.length) return res.status(400).json({ error: 'رابط غير صالح أو منتهي الصلاحية' })
     const hash = await bcrypt.hash(password, 12)
     await db.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, result.rows[0].user_id])
     await db.query('UPDATE reset_tokens SET used=true WHERE token=$1', [token])
-    res.json({ message: 'Password updated' })
+    res.json({ message: 'تم تحديث كلمة المرور بنجاح' })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
@@ -120,7 +134,7 @@ router.post('/register', async (req, res) => {
     if (existing.rows.length) return res.status(400).json({ error: 'هذا البريد مسجّل مسبقاً' })
     const hash = await bcrypt.hash(password, 12)
     const user = await db.query(
-      'INSERT INTO users (name, email, password_hash, role) VALUES ($1,$2,$3,$4) RETURNING id, name, email, role',
+      'INSERT INTO users (name, email, password_hash, role, onboarding_done) VALUES ($1,$2,$3,$4,false) RETURNING id, name, email, role, onboarding_done',
       [name, invite.email, hash, 'employee']
     )
     await db.query('UPDATE invite_tokens SET used=true WHERE token=$1', [token])
