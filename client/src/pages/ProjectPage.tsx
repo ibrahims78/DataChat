@@ -29,17 +29,19 @@ export default function ProjectPage() {
 
   const {
     saveFile: saveFolderFile, folderName, permState: folderPermState,
-    listAllFiles, createDirectory, writeFileContent, primaryFolder
+    listAllFiles, createDirectory, writeFileContent, deleteFile, primaryFolder
   } = useFolderSyncContext()
   const saveFolderFileRef = useRef(saveFolderFile)
   const listAllFilesRef = useRef(listAllFiles)
   const createDirectoryRef = useRef(createDirectory)
   const writeFileContentRef = useRef(writeFileContent)
+  const deleteFileRef = useRef(deleteFile)
   const primaryFolderRef = useRef(primaryFolder)
   useEffect(() => { saveFolderFileRef.current = saveFolderFile }, [saveFolderFile])
   useEffect(() => { listAllFilesRef.current = listAllFiles }, [listAllFiles])
   useEffect(() => { createDirectoryRef.current = createDirectory }, [createDirectory])
   useEffect(() => { writeFileContentRef.current = writeFileContent }, [writeFileContent])
+  useEffect(() => { deleteFileRef.current = deleteFile }, [deleteFile])
   useEffect(() => { primaryFolderRef.current = primaryFolder }, [primaryFolder])
   const folderActiveRef = useRef(false)
   useEffect(() => { folderActiveRef.current = folderPermState === 'granted' && !!folderName }, [folderPermState, folderName])
@@ -306,6 +308,11 @@ export default function ProjectPage() {
                   } catch (e: any) {
                     toast.error(`خطأ في إنشاء ملف Word: ${e?.message || 'غير معروف'}`)
                   }
+                } else if (data.action === 'delete_file' && data.path) {
+                  const fname = primaryFolderRef.current?.name || ''
+                  const result = await deleteFileRef.current(fname, data.path)
+                  if (result === 'deleted') toast.success(`🗑️ تم حذف "${data.path}" من المجلد المرتبط`)
+                  else if (result !== 'no_folder') toast.error(`فشل حذف الملف "${data.path}"`)
                 }
               } else if (data.type === 'done') {
                 if (data.generatedFile) {

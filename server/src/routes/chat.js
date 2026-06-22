@@ -223,6 +223,18 @@ function getDriveTools() {
           },
           required: ['fileId', 'targetFolderId']
         }
+      },
+      {
+        name: 'readDriveFileContent',
+        description: 'يقرأ محتوى ملف من Google Drive مباشرةً ويُعيده للتحليل بدون استيراده للمشروع. مفيد لتحليل ملف Drive سريعاً أو الإجابة عن أسئلة بشأنه. يدعم: Excel/CSV/PDF/Word/HTML/TXT/JSON.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            fileId: { type: 'STRING', description: 'معرّف الملف في Google Drive' },
+            fileName: { type: 'STRING', description: 'اسم الملف (للعرض في الرد)' }
+          },
+          required: ['fileId', 'fileName']
+        }
       }
     ]
   }]
@@ -383,6 +395,55 @@ async function executeDriveFunction(name, args, userId, projectId) {
         requestBody: {}
       })
       return { success: true, message: `تم نقل الملف إلى "${args.targetFolderName || args.targetFolderId}"` }
+    }
+
+    case 'readDriveFileContent': {
+      const meta = await drive.files.get({ fileId: args.fileId, fields: 'id,name,mimeType,size' })
+      const fileMeta = meta.data
+      const nativeExport = {
+        'application/vnd.google-apps.spreadsheet': { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ext: 'xlsx' },
+        'application/vnd.google-apps.document': { mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: 'docx' },
+      }
+      let buffer
+      let ext = (args.fileName || fileMeta.name).split('.').pop()?.toLowerCase() || 'bin'
+      if (nativeExport[fileMeta.mimeType]) {
+        const exp = nativeExport[fileMeta.mimeType]
+        const resp = await drive.files.export({ fileId: args.fileId, mimeType: exp.mime }, { responseType: 'arraybuffer' })
+        buffer = Buffer.from(resp.data)
+        ext = exp.ext
+      } else {
+        const resp = await drive.files.get({ fileId: args.fileId, alt: 'media' }, { responseType: 'arraybuffer' })
+        buffer = Buffer.from(resp.data)
+      }
+      const MAX_CONTENT = 80000
+      let content = ''
+      try {
+        if (['xlsx', 'xls', 'xlsm', 'ods'].includes(ext)) {
+          const wb = xlsx.read(buffer, { type: 'buffer' })
+          for (const sheetName of wb.SheetNames) {
+            const ws = wb.Sheets[sheetName]
+            const rows = xlsx.utils.sheet_to_json(ws, { header: 1, defval: '' })
+            content += `\n[ورقة: ${sheetName}]\n`
+            content += rows.slice(0, 500).map(r => Array.isArray(r) ? r.join('\t') : '').join('\n')
+          }
+        } else if (['docx', 'doc'].includes(ext)) {
+          const r = await mammoth.extractRawText({ buffer })
+          content = r.value
+        } else if (ext === 'pdf') {
+          const pdfData = await pdf(buffer)
+          content = pdfData.text
+        } else if (['txt', 'md', 'json', 'html', 'htm', 'csv', 'tsv', 'xml', 'yaml', 'yml'].includes(ext)) {
+          content = buffer.toString('utf8')
+        } else {
+          return { error: `صيغة ".${ext}" غير مدعومة للقراءة المباشرة. استخدم importDriveFileToProject بدلاً من ذلك.` }
+        }
+      } catch (e) {
+        return { error: `فشل قراءة الملف: ${e.message}` }
+      }
+      if (content.length > MAX_CONTENT) {
+        content = content.slice(0, MAX_CONTENT) + '\n\n[... محتوى مقتطع — الملف أكبر من الحد المسموح به ...]'
+      }
+      return { success: true, fileName: args.fileName || fileMeta.name, sizeBytes: buffer.length, content }
     }
 
     default:
@@ -1496,7 +1557,7 @@ router.post('/:projectId/message', async (req, res) => {
 
 ---
 
-${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة للتحليل:\n${fileContents}` : '') + (Array.isArray(folderFiles) && folderFiles.length > 0 ? `\n\n---\n## ملفات المجلد المرتبط (على جهاز المستخدم):\nالمجلد المرتبط يحتوي على الملفات التالية:\n${folderFiles.map((f, i) => `${i + 1}. ${f.path || f.name}${f.size ? ` (${Math.round(f.size / 1024)} KB)` : ''}`).join('\n')}\n\nيمكنك كتابة ملفات أو إنشاء مجلدات في هذا المجلد:\n- لإنشاء مجلد: [FOLDER_CREATE_DIR:مسار/المجلد]\n- لكتابة ملف نصي/كود: [FOLDER_WRITE_FILE:مسار/الملف.txt|محتوى الملف هنا]\n- لكتابة أو تعديل ملف Word (DOCX) مباشرةً في المجلد: [FOLDER_WRITE_DOCX:مسار/الملف.docx|اكتب المحتوى هنا بصيغة Markdown][/FOLDER_WRITE_DOCX]\nاستخدم هذه الوسوم عند الحاجة فقط، وسيقوم التطبيق بتنفيذها تلقائياً.` : '') + (Array.isArray(folderFileContents) && folderFileContents.length > 0 ? `\n\n---\n## محتوى ملفات المجلد المفتوحة للقراءة المباشرة:\nهذه الملفات مفتوحة من جهاز المستخدم مباشرةً بدون رفعها للمشروع. اقرأها وحللها كما لو كانت مرفوعة:\n\n${folderFileContents.filter(fc => !fc.isImage).map((fc) => `### [${fc.name}]${fc.truncated ? ' ⚠️ (محتوى مقتطع)' : ''}\n${fc.content}`).join('\n\n---\n\n')}${folderFileContents.some(fc => fc.isImage) ? `\n\n### الصور المرفقة:\n${folderFileContents.filter(fc => fc.isImage).map(fc => `- ${fc.name} (${fc.mimeType}) — مرسلة كـ inline_data في هذه الرسالة، انظر إليها مباشرةً وصفها وحللها.`).join('\n')}` : ''}` : '')
+${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة للتحليل:\n${fileContents}` : '') + (Array.isArray(folderFiles) && folderFiles.length > 0 ? `\n\n---\n## ملفات المجلد المرتبط (على جهاز المستخدم):\nالمجلد المرتبط يحتوي على الملفات التالية:\n${folderFiles.map((f, i) => `${i + 1}. ${f.path || f.name}${f.size ? ` (${Math.round(f.size / 1024)} KB)` : ''}`).join('\n')}\n\nيمكنك كتابة ملفات أو إنشاء مجلدات أو حذف ملفات في هذا المجلد:\n- لإنشاء مجلد: [FOLDER_CREATE_DIR:مسار/المجلد]\n- لكتابة ملف نصي/كود: [FOLDER_WRITE_FILE:مسار/الملف.txt|محتوى الملف هنا]\n- لكتابة أو تعديل ملف Word (DOCX) مباشرةً في المجلد: [FOLDER_WRITE_DOCX:مسار/الملف.docx|اكتب المحتوى هنا بصيغة Markdown][/FOLDER_WRITE_DOCX]\n- لحذف ملف: [FOLDER_DELETE_FILE:مسار/الملف.txt]\nاستخدم هذه الوسوم عند الحاجة فقط، وسيقوم التطبيق بتنفيذها تلقائياً. عند الحذف تأكد من موافقة المستخدم الصريحة.` : '') + (Array.isArray(folderFileContents) && folderFileContents.length > 0 ? `\n\n---\n## محتوى ملفات المجلد المفتوحة للقراءة المباشرة:\nهذه الملفات مفتوحة من جهاز المستخدم مباشرةً بدون رفعها للمشروع. اقرأها وحللها كما لو كانت مرفوعة:\n\n${folderFileContents.filter(fc => !fc.isImage).map((fc) => `### [${fc.name}]${fc.truncated ? ' ⚠️ (محتوى مقتطع)' : ''}\n${fc.content}`).join('\n\n---\n\n')}${folderFileContents.some(fc => fc.isImage) ? `\n\n### الصور المرفقة:\n${folderFileContents.filter(fc => fc.isImage).map(fc => `- ${fc.name} (${fc.mimeType}) — مرسلة كـ inline_data في هذه الرسالة، انظر إليها مباشرةً وصفها وحللها.`).join('\n')}` : ''}` : '')
 
     const systemText = FILE_GEN_PROTOCOL
 
@@ -1579,7 +1640,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         const driveCheck = await db.query('SELECT id FROM google_oauth WHERE user_id=$1', [req.user.id])
         if (driveCheck.rows.length > 0) {
           driveTools = getDriveTools()
-          driveSystemAddition = `\n\n---\n## صلاحيات Google Drive (متاحة الآن)\nأنت متصل بـ Google Drive للمستخدم. يمكنك تنفيذ العمليات التالية مباشرةً:\n- **عرض/بحث الملفات**: listDriveFiles(folderId?, searchQuery?)\n- **إنشاء مجلد**: createDriveFolder(name, parentId?)\n- **إعادة تسمية**: renameDriveFile(fileId, newName)\n- **حذف (سلة المهملات)**: deleteDriveFile(fileId, fileName) — تأكد من موافقة المستخدم\n- **نسخ**: copyDriveFile(fileId, name?, folderId?)\n- **استيراد من Drive للمشروع**: importDriveFileToProject(fileId, fileName)\n- **رفع ملف مُولَّد إلى Drive**: uploadGeneratedFileToDrive(genFileId, folderId?) — استخدم معرّف الملف المُولَّد بعد إنشائه\n- **نقل**: moveDriveFile(fileId, targetFolderId, targetFolderName?)\nعند طلب المستخدم أي عملية Drive، استخدم الدوال مباشرةً دون تردد. لا تقل "لا أستطيع".`
+          driveSystemAddition = `\n\n---\n## صلاحيات Google Drive (متاحة الآن)\nأنت متصل بـ Google Drive للمستخدم. يمكنك تنفيذ العمليات التالية مباشرةً:\n- **عرض/بحث الملفات**: listDriveFiles(folderId?, searchQuery?)\n- **إنشاء مجلد**: createDriveFolder(name, parentId?)\n- **إعادة تسمية**: renameDriveFile(fileId, newName)\n- **حذف (سلة المهملات)**: deleteDriveFile(fileId, fileName) — تأكد من موافقة المستخدم\n- **نسخ**: copyDriveFile(fileId, name?, folderId?)\n- **قراءة محتوى ملف مباشرةً للتحليل**: readDriveFileContent(fileId, fileName) — يقرأ الملف ويُعيد محتواه بدون استيراده للمشروع (يدعم Excel/CSV/PDF/Word/TXT/JSON)\n- **استيراد من Drive للمشروع**: importDriveFileToProject(fileId, fileName) — يضيف الملف لقائمة ملفات المشروع الدائمة\n- **رفع ملف مُولَّد إلى Drive**: uploadGeneratedFileToDrive(genFileId, folderId?) — استخدم معرّف الملف المُولَّد بعد إنشائه\n- **نقل**: moveDriveFile(fileId, targetFolderId, targetFolderName?)\nعند طلب المستخدم أي عملية Drive، استخدم الدوال مباشرةً دون تردد. لا تقل "لا أستطيع".`
         }
       } catch {}
 
@@ -2093,6 +2154,15 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         console.log(`[FOLDER] write_docx: ${filePath}`)
       }
       cleanResponse = cleanResponse.replace(/\[FOLDER_WRITE_DOCX:[^|]+\|[\s\S]*?\[\/FOLDER_WRITE_DOCX\]/g, '').trim()
+
+      // Handle [FOLDER_DELETE_FILE:path] tags
+      const deleteFileRegex = /\[FOLDER_DELETE_FILE:([^\]]+)\]/g
+      while ((m = deleteFileRegex.exec(cleanResponse)) !== null) {
+        const filePath = m[1].trim()
+        res.write(`data: ${JSON.stringify({ type: 'folder_action', action: 'delete_file', path: filePath })}\n\n`)
+        console.log(`[FOLDER] delete_file: ${filePath}`)
+      }
+      cleanResponse = cleanResponse.replace(/\[FOLDER_DELETE_FILE:[^\]]+\]/g, '').trim()
     }
 
     await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [req.params.projectId])
