@@ -257,6 +257,7 @@ router.post('/settings/test-api', async (req, res) => {
       const result = await db.query('SELECT api_key, proxy_url FROM ai_settings WHERE id=1')
       keyToTest = result.rows[0]?.api_key
     }
+    if (!keyToTest) keyToTest = process.env.GEMINI_API_KEY
     if (!keyToTest) return res.status(400).json({ error: 'لم يتم إدخال مفتاح API' })
 
     if (provider === 'openai') {

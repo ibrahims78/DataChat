@@ -86,7 +86,7 @@ function repairJSON(raw) {
 }
 
 function getGenAI(apiKey) {
-  return new GoogleGenerativeAI(apiKey || '')
+  return new GoogleGenerativeAI(apiKey || process.env.GEMINI_API_KEY || '')
 }
 
 const UPLOADS_DIR = path.join(__dirname, '../../../uploads')
