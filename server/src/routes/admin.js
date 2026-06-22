@@ -122,8 +122,10 @@ router.post('/users/invite', async (req, res) => {
 
     const mailer = await getMailer()
     if (mailer) {
+      const smtpRow = await db.query('SELECT smtp_user FROM email_settings WHERE id=1')
+      const smtpUser = smtpRow.rows[0]?.smtp_user || ''
       await mailer.sendMail({
-        from: `"DataChat" <${user}>`,
+        from: `"DataChat" <${smtpUser}>`,
         to: email,
         subject: 'دعوة للانضمام إلى DataChat',
         html: `
