@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "npx concurrently --kill-others-on-fail \"node --watch server/src/index.js\" \"cd client && npx vite --port 5000 --host 0.0.0.0\"",
+    "dev": "concurrently --kill-others-on-fail \"node --watch server/src/index.js\" \"cd client && npx vite --port 5000 --host 0.0.0.0\"",
     "build": "cd client && npm install && npm run build",
     "start": "NODE_ENV=production node server/src/index.js"
   },
