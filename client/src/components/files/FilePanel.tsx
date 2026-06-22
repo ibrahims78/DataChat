@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import {
   Trash2, Download, Eye, Upload, ChevronLeft, ChevronRight,
   FolderPlus, Folder, FolderOpen, Pencil, X, GripVertical,
-  ChevronDown, ChevronUp, Files, FolderSync, Sparkles
+  ChevronDown, ChevronUp, Files, FolderSync, Sparkles, HardDrive, UploadCloud, Loader2
 } from 'lucide-react'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useT } from '../../i18n/translations'
@@ -14,6 +14,7 @@ import FolderFilesSection from './FolderFilesSection'
 import FolderImportModal from './FolderImportModal'
 import FolderCapabilitiesModal from './FolderCapabilitiesModal'
 import FileTypeIcon from '../ui/FileTypeIcon'
+import DrivePanelTab from './DrivePanelTab'
 
 interface FolderItem { id: number; name: string; sort_order: number }
 interface FileItem {
@@ -52,7 +53,7 @@ function fileName(f: FileItem | GenFile) {
   return f.display_name || f.original_name
 }
 
-type TabId = 'project' | 'linked' | 'generated'
+type TabId = 'project' | 'linked' | 'generated' | 'drive'
 
 export default function FilePanel({
   files, generatedFiles, folders, projectId, onRefresh, onUpload,
@@ -63,6 +64,7 @@ export default function FilePanel({
   const [collapsedFolders, setCollapsedFolders] = useState<Set<number>>(new Set())
   const [importFolder, setImportFolder] = useState<string | null>(null)
   const [showCapabilities, setShowCapabilities] = useState(false)
+  const [uploadingToDrive, setUploadingToDrive] = useState<number | null>(null)
 
   // Rename state
   const [renaming, setRenaming] = useState<{ type: 'file' | 'gen' | 'folder'; id: number; value: string } | null>(null)
@@ -91,7 +93,25 @@ export default function FilePanel({
     { id: 'project', label: 'ملفات المشروع', icon: <Files size={13} />, badge: files.length },
     { id: 'linked', label: 'المجلدات المرتبطة', icon: <FolderSync size={13} /> },
     { id: 'generated', label: 'مُولَّدة', icon: <Sparkles size={13} />, badge: generatedFiles.length || undefined },
+    { id: 'drive', label: 'Google Drive', icon: <HardDrive size={13} /> },
   ]
+
+  const uploadToDrive = async (f: GenFile) => {
+    setUploadingToDrive(f.id)
+    try {
+      const res = await api.post(`/drive/upload-generated/${f.id}`, {})
+      toast.success(`تم رفع "${fileName(f)}" إلى Google Drive`)
+    } catch (e: any) {
+      const msg = e?.response?.data?.error || 'فشل الرفع لـ Drive'
+      if (msg.includes('ربط') || msg.includes('غير مُهيأ')) {
+        toast.error('يرجى ربط Google Drive أولاً من الإعدادات')
+      } else {
+        toast.error(msg)
+      }
+    } finally {
+      setUploadingToDrive(null)
+    }
+  }
 
   useEffect(() => {
     if (renaming) setTimeout(() => renameRef.current?.focus(), 50)
@@ -381,6 +401,17 @@ export default function FilePanel({
             className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="تحميل">
             <Download size={11} />
           </button>
+          <button
+            onClick={e => { e.stopPropagation(); uploadToDrive(f) }}
+            disabled={uploadingToDrive === f.id}
+            className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/20 text-[var(--muted)] hover:text-blue-600 transition-colors"
+            title="رفع إلى Google Drive"
+          >
+            {uploadingToDrive === f.id
+              ? <Loader2 size={11} className="animate-spin" />
+              : <UploadCloud size={11} />
+            }
+          </button>
           <button onClick={e => { e.stopPropagation(); setDeleteTarget({ type: 'gen', item: f }) }}
             className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-[var(--muted)] hover:text-red-500 transition-colors" title="حذف">
             <Trash2 size={11} />
@@ -603,7 +634,9 @@ export default function FilePanel({
                 : 'text-[var(--muted)] hover:text-[var(--text)]'}`}
           >
             {tab.icon}
-            <span className="hidden sm:inline truncate">{tab.id === 'project' ? 'ملفات' : tab.id === 'linked' ? 'مرتبطة' : 'مُولَّدة'}</span>
+            <span className="hidden sm:inline truncate">
+              {tab.id === 'project' ? 'ملفات' : tab.id === 'linked' ? 'مرتبطة' : tab.id === 'generated' ? 'مُولَّدة' : 'Drive'}
+            </span>
             {tab.badge !== undefined && tab.badge > 0 && (
               <span className={`text-[11px] px-1 rounded-full font-bold
                 ${activeTab === tab.id ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-600' : 'bg-[var(--border)] text-[var(--muted)]'}`}>
@@ -622,6 +655,9 @@ export default function FilePanel({
         {activeTab === 'project' && renderProjectTab()}
         {activeTab === 'linked' && renderLinkedTab()}
         {activeTab === 'generated' && renderGeneratedTab()}
+        {activeTab === 'drive' && (
+          <DrivePanelTab projectId={projectId} onImport={onRefresh} />
+        )}
       </div>
 
       {/* Modals */}

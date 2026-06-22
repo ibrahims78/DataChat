@@ -436,4 +436,97 @@ router.get('/projects', authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
+// ─── Project Drive Links (AI direct access) ──────────────────────────────────
+
+router.get('/projects/:projectId/links', authenticate, async (req, res) => {
+  try {
+    const { projectId } = req.params
+    const proj = await db.query('SELECT user_id FROM projects WHERE id=$1', [projectId])
+    if (!proj.rows.length) return res.status(404).json({ error: 'Not found' })
+    if (req.user.role !== 'admin' && proj.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
+    const r = await db.query('SELECT * FROM project_drive_links WHERE project_id=$1 ORDER BY linked_at DESC', [projectId])
+    res.json(r.rows)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.post('/projects/:projectId/links', authenticate, async (req, res) => {
+  try {
+    const { projectId } = req.params
+    const { drive_file_id, drive_file_name, drive_mime_type } = req.body
+    if (!drive_file_id || !drive_file_name) return res.status(400).json({ error: 'Missing fields' })
+    const proj = await db.query('SELECT user_id FROM projects WHERE id=$1', [projectId])
+    if (!proj.rows.length) return res.status(404).json({ error: 'Not found' })
+    if (req.user.role !== 'admin' && proj.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
+    const r = await db.query(
+      `INSERT INTO project_drive_links (project_id, user_id, drive_file_id, drive_file_name, drive_mime_type)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (project_id, drive_file_id) DO UPDATE SET drive_file_name=$4, drive_mime_type=$5
+       RETURNING *`,
+      [projectId, req.user.id, drive_file_id, drive_file_name, drive_mime_type || null]
+    )
+    res.json(r.rows[0])
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+router.delete('/projects/:projectId/links/:driveFileId', authenticate, async (req, res) => {
+  try {
+    const { projectId, driveFileId } = req.params
+    const proj = await db.query('SELECT user_id FROM projects WHERE id=$1', [projectId])
+    if (!proj.rows.length) return res.status(404).json({ error: 'Not found' })
+    if (req.user.role !== 'admin' && proj.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
+    await db.query('DELETE FROM project_drive_links WHERE project_id=$1 AND drive_file_id=$2', [projectId, driveFileId])
+    res.json({ ok: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// ─── Upload generated file to Drive ──────────────────────────────────────────
+
+router.post('/upload-generated/:genFileId', authenticate, async (req, res) => {
+  const fs = require('fs')
+  const path = require('path')
+  try {
+    const { genFileId } = req.params
+    const { folderId } = req.body
+    const auth = await getAuthedClient(req)
+    const drive = google.drive({ version: 'v3', auth })
+
+    const genFile = await db.query(
+      'SELECT gf.*, p.user_id FROM generated_files gf JOIN projects p ON p.id=gf.project_id WHERE gf.id=$1',
+      [genFileId]
+    )
+    if (!genFile.rows.length) return res.status(404).json({ error: 'File not found' })
+    if (req.user.role !== 'admin' && genFile.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
+
+    const f = genFile.rows[0]
+    const UPLOADS_DIR = path.join(__dirname, '../../../uploads')
+
+    const padId = id => String(id).padStart(4, '0')
+    let filePath = path.join(UPLOADS_DIR, 'users', `user_${padId(f.user_id)}`, 'projects', `project_${padId(f.project_id)}`, f.stored_name)
+    if (!fs.existsSync(filePath)) filePath = path.join(UPLOADS_DIR, 'generated', f.stored_name)
+    if (!fs.existsSync(filePath)) filePath = path.join(UPLOADS_DIR, f.stored_name)
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' })
+
+    const mimeMap = {
+      excel: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      pdf: 'application/pdf',
+      word: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      html: 'text/html',
+      markdown: 'text/markdown',
+      text: 'text/plain',
+      json: 'application/json',
+      csv: 'text/csv',
+    }
+    const mime = mimeMap[f.file_type] || 'application/octet-stream'
+    const fileMetadata = { name: f.original_name || f.stored_name }
+    if (folderId && folderId !== 'root') fileMetadata.parents = [folderId]
+
+    const response = await drive.files.create({
+      requestBody: fileMetadata,
+      media: { mimeType: mime, body: fs.createReadStream(filePath) },
+      fields: 'id,name,webViewLink',
+    })
+    res.json({ ok: true, driveFile: response.data })
+  } catch (err) { res.status(400).json({ error: err.message }) }
+})
+
 module.exports = router

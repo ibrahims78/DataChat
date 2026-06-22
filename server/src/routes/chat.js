@@ -10,6 +10,7 @@ const PDFDocument = require('pdfkit')
 const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = require('docx')
 const { PDFDocument: PDFLib } = require('pdf-lib')
 const { GoogleGenerativeAI } = require('@google/generative-ai')
+const { google } = require('googleapis')
 const db = require('../lib/db')
 const { authenticate } = require('../middleware/auth')
 
@@ -116,6 +117,59 @@ function resolveFileUrl(file) {
     if (fs.existsSync(path.join(UPLOADS_DIR, legacyRel))) return `/uploads/${legacyRel}`
   }
   return `/uploads/${file.stored_name}`
+}
+
+async function extractDriveContent(buffer, name, mimeType) {
+  const ext = (name.split('.').pop() || '').toLowerCase()
+  try {
+    if (mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || ext === 'xlsx' || ext === 'xls') {
+      const wb = XLSX.read(buffer, { type: 'buffer' })
+      let content = `[ملف Drive Excel: ${name}]\n`
+      const CHAR_BUDGET = 200000
+      wb.SheetNames.forEach(sheetName => {
+        const ws = wb.Sheets[sheetName]
+        const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+        if (!data.length) return
+        const headers = data[0]
+        const rows = data.slice(1)
+        const csvHeader = headers.map(h => String(h).includes(',') ? `"${h}"` : String(h)).join(',')
+        let csvRows = rows.map(row =>
+          headers.map((_, ci) => { const v = String(row[ci] ?? ''); return v.includes(',') ? `"${v}"` : v }).join(',')
+        ).join('\n')
+        const used = content.length + csvHeader.length + 1
+        if (CHAR_BUDGET - used <= 0) return
+        if (csvRows.length > CHAR_BUDGET - used) {
+          const cut = csvRows.lastIndexOf('\n', CHAR_BUDGET - used)
+          csvRows = csvRows.substring(0, cut) + '\n[مقتطع...]'
+        }
+        content += `ورقة: ${sheetName}\n${csvHeader}\n${csvRows}\n`
+      })
+      return content
+    }
+    if (mimeType === 'text/csv' || ext === 'csv') {
+      const text = buffer.toString('utf8')
+      return `[ملف Drive CSV: ${name}]\n${text.substring(0, 200000)}`
+    }
+    if (mimeType === 'application/pdf' || ext === 'pdf') {
+      const data = await pdfParse(buffer)
+      const CHAR_BUDGET = 200000
+      const text = data.text
+      const header = `[ملف Drive PDF: ${name}]\nالصفحات: ${data.numpages}\n\n`
+      return header + (text.length > CHAR_BUDGET ? text.substring(0, CHAR_BUDGET) + '\n[مقتطع...]' : text)
+    }
+    if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || ext === 'docx') {
+      const result = await mammoth.extractRawText({ buffer })
+      const text = result.value
+      return `[ملف Drive Word: ${name}]\n${text.substring(0, 200000)}`
+    }
+    if (mimeType === 'text/plain' || ext === 'txt' || ext === 'md' || ext === 'json' || ext === 'html') {
+      const text = buffer.toString('utf8')
+      return `[ملف Drive نصي: ${name}]\n${text.substring(0, 200000)}`
+    }
+    return `[ملف Drive: ${name} — نوع غير مدعوم للقراءة المباشرة: ${mimeType}]`
+  } catch (e) {
+    return `[ملف Drive: ${name} — خطأ في القراءة: ${e.message}]`
+  }
 }
 
 async function extractFileContent(file) {
@@ -983,7 +1037,46 @@ router.post('/:projectId/message', async (req, res) => {
 
     // Extract all file contents in parallel
     const contentParts = await Promise.all(filesResult.rows.map(f => extractFileContent(f)))
-    const fileContents = contentParts.join('\n\n')
+    let fileContents = contentParts.join('\n\n')
+
+    // ── Inject Drive-linked files for AI direct access ──
+    try {
+      const driveLinksRes = await db.query(
+        `SELECT dl.drive_file_id, dl.drive_file_name, dl.drive_mime_type,
+                go.access_token, go.refresh_token, go.token_expiry,
+                gds.client_id, gds.client_secret
+         FROM project_drive_links dl
+         JOIN google_oauth go ON go.user_id = dl.user_id
+         JOIN google_drive_settings gds ON gds.id = 1
+         WHERE dl.project_id = $1 AND dl.user_id = $2`,
+        [req.params.projectId, req.user.id]
+      )
+      if (driveLinksRes.rows.length > 0) {
+        const driveParts = await Promise.all(driveLinksRes.rows.map(async (link) => {
+          try {
+            const oauth2 = new google.auth.OAuth2(link.client_id, link.client_secret)
+            oauth2.setCredentials({ access_token: link.access_token, refresh_token: link.refresh_token })
+            const drive = google.drive({ version: 'v3', auth: oauth2 })
+            const resp = await drive.files.get(
+              { fileId: link.drive_file_id, alt: 'media' },
+              { responseType: 'arraybuffer' }
+            )
+            const buffer = Buffer.from(resp.data)
+            return await extractDriveContent(buffer, link.drive_file_name, link.drive_mime_type || '')
+          } catch (e) {
+            return `[ملف Drive: ${link.drive_file_name} — تعذّر القراءة: ${e.message}]`
+          }
+        }))
+        const driveContents = driveParts.filter(Boolean).join('\n\n')
+        if (driveContents) {
+          fileContents = fileContents
+            ? fileContents + '\n\n---\n\n' + driveContents
+            : driveContents
+        }
+      }
+    } catch (e) {
+      console.error('[Drive links] Error fetching Drive files:', e.message)
+    }
 
     await db.query('INSERT INTO messages (conversation_id, role, content) VALUES ($1,$2,$3)', [conversationId, 'user', message])
 

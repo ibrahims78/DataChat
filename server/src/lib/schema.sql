@@ -151,8 +151,21 @@ CREATE TABLE IF NOT EXISTS google_oauth (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Project Drive Links (Drive files linked for AI direct access)
+CREATE TABLE IF NOT EXISTS project_drive_links (
+  id SERIAL PRIMARY KEY,
+  project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  drive_file_id VARCHAR(255) NOT NULL,
+  drive_file_name VARCHAR(500) NOT NULL,
+  drive_mime_type VARCHAR(200),
+  linked_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(project_id, drive_file_id)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
+CREATE INDEX IF NOT EXISTS idx_drive_links_project_id ON project_drive_links(project_id);
 CREATE INDEX IF NOT EXISTS idx_files_project_id ON files(project_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_project_id ON conversations(project_id);
