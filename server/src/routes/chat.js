@@ -2596,6 +2596,15 @@ router.post('/:projectId/submit-response', async (req, res) => {
 router.patch('/messages/:messageId/rating', async (req, res) => {
   try {
     const { rating, comment } = req.body
+    // Verify the message belongs to the requesting user (or user is admin)
+    const ownerCheck = await db.query(
+      `SELECT m.id FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id
+       JOIN projects p ON p.id = c.project_id
+       WHERE m.id = $1 AND (p.user_id = $2 OR $3 = 'admin')`,
+      [req.params.messageId, req.user.id, req.user.role]
+    )
+    if (!ownerCheck.rows.length) return res.status(403).json({ error: 'Forbidden' })
     await db.query('UPDATE messages SET rating=$1, rating_comment=$2 WHERE id=$3', [rating, comment, req.params.messageId])
     res.json({ success: true })
   } catch (err) {
@@ -2606,8 +2615,17 @@ router.patch('/messages/:messageId/rating', async (req, res) => {
 router.patch('/messages/:messageId', async (req, res) => {
   try {
     const { content } = req.body
-    const msg = await db.query('SELECT * FROM messages WHERE id=$1', [req.params.messageId])
+    const msg = await db.query(
+      `SELECT m.*, p.user_id as project_user_id FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id
+       JOIN projects p ON p.id = c.project_id
+       WHERE m.id = $1`,
+      [req.params.messageId]
+    )
     if (!msg.rows.length) return res.status(404).json({ error: 'Message not found' })
+    if (req.user.role !== 'admin' && msg.rows[0].project_user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
     await db.query('UPDATE messages SET content=$1 WHERE id=$2', [content, req.params.messageId])
     await db.query('DELETE FROM messages WHERE conversation_id=$1 AND created_at > (SELECT created_at FROM messages WHERE id=$2)', [msg.rows[0].conversation_id, req.params.messageId])
     res.json({ success: true })
@@ -2618,12 +2636,18 @@ router.patch('/messages/:messageId', async (req, res) => {
 
 router.get('/:projectId/export', async (req, res) => {
   try {
-    const { format = 'pdf' } = req.query
+    const { format = 'excel' } = req.query
     const projectCheck = await db.query('SELECT * FROM projects WHERE id=$1', [req.params.projectId])
     if (!projectCheck.rows.length) return res.status(404).json({ error: 'Not found' })
+    // Ownership check
+    if (req.user.role !== 'admin' && projectCheck.rows[0].user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
     const conv = await db.query('SELECT id FROM conversations WHERE project_id=$1 LIMIT 1', [req.params.projectId])
+    if (!conv.rows.length) {
+      return res.status(404).json({ error: 'لا توجد محادثة في هذا المشروع' })
+    }
     const messages = await db.query('SELECT * FROM messages WHERE conversation_id=$1 ORDER BY created_at', [conv.rows[0].id])
-
     const content = messages.rows.map(m => `${m.role === 'user' ? 'المستخدم' : 'DataChat'}: ${m.content}`).join('\n\n---\n\n')
 
     if (format === 'txt') {
@@ -2631,9 +2655,9 @@ router.get('/:projectId/export', async (req, res) => {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8')
       return res.send(content)
     }
-    // Use Excel-based export for full Arabic RTL support (no rectangles issue with pdfkit)
-    const pdf = await generateReportAsExcel({ title: 'تصدير المحادثة', content }, 'chat-export')
-    res.download(path.join(__dirname, '../../../uploads/generated', pdf.storedName), pdf.originalName)
+    // Excel export with full Arabic RTL support
+    const exported = await generateReportAsExcel({ title: 'تصدير المحادثة', content }, 'chat-export')
+    res.download(path.join(__dirname, '../../../uploads/generated', exported.storedName), exported.originalName)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

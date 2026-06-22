@@ -90,9 +90,14 @@ export default function ChatMessages({ messages, isTyping, typingStep, projectId
 
   const rate = async (id: number, val: number) => {
     if (ratingComment?.id === id) {
-      await api.patch(`/chat/messages/${id}/rating`, { rating: ratingComment.val, comment: commentText })
-      setRatingComment(null); setCommentText('')
-      toast.success('شكراً على تقييمك!')
+      try {
+        await api.patch(`/chat/messages/${id}/rating`, { rating: ratingComment.val, comment: commentText })
+        setRatingComment(null); setCommentText('')
+        toast.success('شكراً على تقييمك!')
+        onMessageUpdated()
+      } catch {
+        toast.error('فشل حفظ التقييم')
+      }
     } else {
       setRatingComment({ id, val })
     }

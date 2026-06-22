@@ -40,7 +40,7 @@ export default function SettingsPage() {
   const [savingGoogle, setSavingGoogle] = useState(false)
   const { lang, theme, toggleTheme, toggleLang } = useTheme()
   const tr = useT(lang)
-  const { user, logout } = useAuth()
+  const { user, logout, updateUser } = useAuth()
 
   useEffect(() => { fetchData() }, [tab])
   useEffect(() => {
@@ -179,6 +179,7 @@ export default function SettingsPage() {
     try {
       const r = await api.patch('/admin/profile', profile)
       toast.success('تم حفظ التغييرات')
+      updateUser({ name: profile.name, email: profile.email })
     } catch (err: any) { toast.error(err.response?.data?.error || 'فشل الحفظ') }
   }
 

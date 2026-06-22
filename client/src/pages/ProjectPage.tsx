@@ -420,8 +420,9 @@ export default function ProjectPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = format === 'pdf' ? 'chat-export.pdf' : 'chat-export.txt'
+      a.download = format === 'txt' ? 'chat-export.txt' : 'chat-export.xlsx'
       a.click()
+      URL.revokeObjectURL(url)
     } catch { toast.error('فشل التصدير') }
   }
 
@@ -502,9 +503,9 @@ export default function ProjectPage() {
             {showMoreMenu && (
               <div className="absolute end-0 top-10 w-56 bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-xl py-1 z-30 animate-fade-in">
                 <p className="text-[10px] text-[var(--muted)] px-4 pt-1 pb-0.5 font-semibold uppercase tracking-wide">تصدير المحادثة</p>
-                <button onClick={() => { handleExport('pdf'); setShowMoreMenu(false) }}
+                <button onClick={() => { handleExport('excel'); setShowMoreMenu(false) }}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)] transition-colors">
-                  <Download size={14} /> {tr('exportPDF')}
+                  <Download size={14} /> تصدير Excel
                 </button>
                 <button onClick={() => { handleExport('txt'); setShowMoreMenu(false) }}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)] transition-colors">
