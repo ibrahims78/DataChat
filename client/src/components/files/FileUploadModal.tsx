@@ -17,10 +17,8 @@ const ACCEPTED_EXTS = new Set([
   '.bmp', '.tiff', '.tif', '.heic', '.heif',
 ])
 const MAX_SIZE = 50 * 1024 * 1024
-const CONCURRENCY = 2
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
-type Phase = 'select' | 'ready' | 'uploading' | 'done'
 type FileStatus = 'idle' | 'uploading' | 'done' | 'error'
 
 interface UploadItem {
@@ -73,19 +71,21 @@ async function traverseDirectory(entry: FileSystemDirectoryEntry): Promise<File[
 // ─── Component ──────────────────────────────────────────────────────────────────
 export default function FileUploadModal({ projectId, onClose, onUploaded }: Props) {
   const [items, setItems] = useState<UploadItem[]>([])
-  const [phase, setPhase] = useState<Phase>('select')
+  const [uploading, setUploading] = useState(false)
+  const [done, setDone] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const filesInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
-  const idxRef = useRef(0)
+
+  const phase = done ? 'done' : uploading ? 'uploading' : items.length > 0 ? 'ready' : 'select'
 
   // Block page unload during upload
   useEffect(() => {
-    if (phase !== 'uploading') return
+    if (!uploading) return
     const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
     window.addEventListener('beforeunload', h)
     return () => window.removeEventListener('beforeunload', h)
-  }, [phase])
+  }, [uploading])
 
   // ─── Add files ───────────────────────────────────────────────────────────────
   const addFiles = useCallback((raw: File[]) => {
@@ -106,9 +106,7 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
       const existingIds = new Set(prev.map(i => i.id))
       const unique = valid.filter(i => !existingIds.has(i.id))
       if (!unique.length) { toast('الملفات المختارة موجودة بالفعل'); return prev }
-      const next = [...prev, ...unique]
-      setPhase('ready')
-      return next
+      return [...prev, ...unique]
     })
   }, [])
 
@@ -138,7 +136,6 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
     addFiles(files)
   }
 
-  // ─── Input handlers ──────────────────────────────────────────────────────────
   const handleFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) addFiles(Array.from(e.target.files))
     e.target.value = ''
@@ -149,77 +146,61 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
   }
 
   function removeItem(id: string) {
-    setItems(prev => {
-      const next = prev.filter(i => i.id !== id)
-      if (!next.length) setPhase('select')
-      return next
-    })
+    setItems(prev => prev.filter(i => i.id !== id))
   }
 
   // ─── Upload ──────────────────────────────────────────────────────────────────
   async function startUpload() {
-    const snapshot = [...items]
-    idxRef.current = 0
-    setPhase('uploading')
+    if (uploading || items.length === 0) return
+
+    console.log('[upload] starting', items.length, 'files for project', projectId)
+    setUploading(true)
     uploadStarted()
 
-    // Track results outside React state to avoid batching issues
-    const results: Record<string, 'done' | 'error'> = {}
+    let successCount = 0
+    let failCount = 0
 
-    async function worker() {
-      while (true) {
-        const i = idxRef.current++
-        if (i >= snapshot.length) break
-        const item = snapshot[i]
-
-        setItems(prev => prev.map(x => x.id === item.id ? { ...x, status: 'uploading', progress: 0 } : x))
-
-        try {
-          console.log('[upload] starting:', item.file.name, 'projectId:', projectId)
-          const data = await uploadChunked(item.file, projectId, pct => {
-            setItems(prev => prev.map(x => x.id === item.id ? { ...x, progress: pct } : x))
-          })
-          console.log('[upload] success:', item.file.name, data)
-          results[item.id] = 'done'
-          setItems(prev => prev.map(x => x.id === item.id ? { ...x, status: 'done', progress: 100 } : x))
-          await onUploaded(data.file, true)
-        } catch (err: any) {
-          console.error('[upload] error:', item.file.name, err)
-          const msg = err?.response?.data?.error || err?.message || 'فشل الرفع'
-          results[item.id] = 'error'
-          setItems(prev => prev.map(x => x.id === item.id ? { ...x, status: 'error', error: msg } : x))
-          toast.error(`فشل رفع ${item.file.name}: ${msg}`)
-        }
+    for (const item of items) {
+      setItems(prev => prev.map(x => x.id === item.id ? { ...x, status: 'uploading', progress: 0 } : x))
+      try {
+        console.log('[upload] uploading:', item.file.name, 'size:', item.file.size)
+        const data = await uploadChunked(item.file, projectId, pct => {
+          setItems(prev => prev.map(x => x.id === item.id ? { ...x, progress: pct } : x))
+        })
+        console.log('[upload] done:', item.file.name)
+        successCount++
+        setItems(prev => prev.map(x => x.id === item.id ? { ...x, status: 'done', progress: 100 } : x))
+        await onUploaded(data.file, true)
+      } catch (err: any) {
+        console.error('[upload] failed:', item.file.name, err)
+        failCount++
+        const msg = err?.response?.data?.error || err?.message || 'فشل الرفع'
+        setItems(prev => prev.map(x => x.id === item.id ? { ...x, status: 'error', error: msg } : x))
+        toast.error(`فشل: ${item.file.name} — ${msg}`)
       }
     }
 
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, snapshot.length) }, worker))
     uploadFinished()
+    setUploading(false)
+    setDone(true)
 
-    // Use plain object results (not React state) to avoid batching race condition
-    const successCount = Object.values(results).filter(v => v === 'done').length
-    const failCount = Object.values(results).filter(v => v === 'error').length
-
-    if (failCount === 0) toast.success(`✅ تم رفع ${successCount} ${successCount === 1 ? 'ملف' : 'ملفات'} بنجاح`)
-    else if (successCount > 0) toast(`⚠️ ${successCount} بنجاح · ${failCount} فشل`, { duration: 5000 })
-
-    setPhase('done')
-
-    // Auto-close after 1.5 s only when everything succeeded
     if (failCount === 0 && successCount > 0) {
+      toast.success(`✅ تم رفع ${successCount} ${successCount === 1 ? 'ملف' : 'ملفات'} بنجاح`)
       setTimeout(onClose, 1500)
+    } else if (successCount > 0) {
+      toast(`⚠️ ${successCount} بنجاح · ${failCount} فشل`, { duration: 5000 })
     }
   }
 
   // ─── Derived ─────────────────────────────────────────────────────────────────
-  const totalSize  = items.reduce((s, i) => s + i.file.size, 0)
-  const doneCount  = items.filter(i => i.status === 'done').length
-  const errorCount = items.filter(i => i.status === 'error').length
-  const overallPct = items.length
+  const totalSize   = items.reduce((s, i) => s + i.file.size, 0)
+  const doneCount   = items.filter(i => i.status === 'done').length
+  const errorCount  = items.filter(i => i.status === 'error').length
+  const overallPct  = items.length
     ? Math.round(items.reduce((s, i) => s + i.progress, 0) / items.length)
     : 0
 
-  const canClose = phase !== 'uploading'
+  const canClose = !uploading
 
   // ─── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -251,7 +232,7 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
         {/* ── Body ── */}
         <div className="flex-1 overflow-y-auto">
 
-          {/* Drop zone — shown in select phase or as overlay when dragging in ready phase */}
+          {/* Drop zone — shown when no files selected */}
           {phase === 'select' && (
             <div className="p-5">
               <div
@@ -267,17 +248,15 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
                 {isDragOver ? (
                   <>
                     <FolderOpen size={44} className="text-primary-500 mx-auto mb-3" />
-                    <p className="font-bold text-primary-600 text-lg">أفلت هنا</p>
+                    <p className="text-primary-600 font-semibold">أفلت الملفات هنا</p>
                   </>
                 ) : (
                   <>
-                    <div className="w-14 h-14 rounded-2xl bg-[var(--bg)] border border-[var(--border)] flex items-center justify-center mx-auto mb-4">
-                      <Upload size={26} className="text-[var(--muted)]" />
+                    <div className="w-14 h-14 rounded-2xl bg-primary-50 dark:bg-primary-900/30 flex items-center justify-center mx-auto mb-4">
+                      <Upload size={26} className="text-primary-500" />
                     </div>
-                    <p className="font-semibold text-[var(--text)] mb-1">اسحب ملفات أو مجلداً هنا</p>
-                    <p className="text-xs text-[var(--muted)] mb-5 leading-relaxed">
-                      xlsx · csv · pdf · docx · txt · json · png وغيرها<br/>الحد الأقصى 50 MB لكل ملف
-                    </p>
+                    <p className="font-semibold text-[var(--text)] mb-1">اسحب الملفات هنا</p>
+                    <p className="text-sm text-[var(--muted)] mb-5">أو اختر من جهازك</p>
                     <div className="flex items-center justify-center gap-3">
                       <button
                         onClick={() => filesInputRef.current?.click()}
@@ -288,20 +267,23 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
                       </button>
                       <button
                         onClick={() => folderInputRef.current?.click()}
-                        className="btn-ghost text-sm px-4 py-2.5 flex items-center gap-2 rounded-xl border border-[var(--border)]"
+                        className="btn-ghost text-sm px-4 py-2.5 flex items-center gap-2 rounded-xl"
                       >
                         <Folder size={15} />
                         اختيار مجلد
                       </button>
                     </div>
+                    <p className="text-xs text-[var(--muted)] mt-4">
+                      Excel · CSV · PDF · Word · Markdown · JSON · HTML · صور · نصوص — حتى 50 MB
+                    </p>
                   </>
                 )}
               </div>
             </div>
           )}
 
-          {/* File list */}
-          {(phase === 'ready' || phase === 'uploading' || phase === 'done') && (
+          {/* File list — shown when files selected */}
+          {phase !== 'select' && (
             <div
               onDragEnter={phase === 'ready' ? handleDragEnter : undefined}
               onDragLeave={phase === 'ready' ? handleDragLeave : undefined}
@@ -348,25 +330,20 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
                     ${item.status === 'done' ? 'bg-green-50/50 dark:bg-green-900/10' : ''}
                     ${item.status === 'error' ? 'bg-red-50/50 dark:bg-red-900/10' : ''}
                   `}>
-                    {/* Icon */}
                     <FileTypeIcon type={getExt(item.file.name)} size="md" />
-
-                    {/* Info */}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-[var(--text)] truncate" title={item.file.name}>
                         {item.file.name}
                       </p>
                       <div className="flex items-center gap-2 mt-1.5">
                         <span className="text-xs text-[var(--muted)] shrink-0">{formatSize(item.file.size)}</span>
-
-                        {/* Progress bar */}
                         {item.status !== 'error' && (
                           <div className="flex-1 flex items-center gap-2">
                             <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-[var(--border)]">
                               <div
                                 className={`h-full rounded-full transition-all duration-300 ${
-                                  item.status === 'done'     ? 'bg-green-500' :
-                                  item.status === 'uploading'? 'bg-primary-500' : 'bg-[var(--border)]'
+                                  item.status === 'done'      ? 'bg-green-500' :
+                                  item.status === 'uploading' ? 'bg-primary-500' : 'bg-[var(--border)]'
                                 }`}
                                 style={{ width: `${item.status === 'done' ? 100 : item.progress}%` }}
                               />
@@ -386,8 +363,6 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
                         )}
                       </div>
                     </div>
-
-                    {/* Status icon */}
                     <div className="shrink-0 w-6 flex justify-center">
                       {item.status === 'idle' && phase === 'ready' && (
                         <button
@@ -398,9 +373,6 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
                           <X size={13} />
                         </button>
                       )}
-                      {item.status === 'idle' && phase === 'uploading' && (
-                        <Clock size={15} className="text-[var(--muted)]" />
-                      )}
                       {item.status === 'uploading' && (
                         <Loader2 size={15} className="text-primary-500 animate-spin" />
                       )}
@@ -409,6 +381,9 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
                       )}
                       {item.status === 'error' && (
                         <AlertCircle size={15} className="text-red-500" />
+                      )}
+                      {item.status === 'idle' && phase === 'uploading' && (
+                        <Clock size={15} className="text-[var(--muted)]" />
                       )}
                     </div>
                   </div>
@@ -420,7 +395,6 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
 
         {/* ── Footer ── */}
         <div className="px-5 py-4 border-t border-[var(--border)] bg-[var(--bg)] rounded-b-2xl">
-          {/* Overall progress bar */}
           {phase === 'uploading' && (
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1.5">
@@ -437,7 +411,6 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
           )}
 
           <div className="flex items-center justify-between gap-3">
-            {/* Left: hint */}
             <div>
               {phase === 'uploading' && (
                 <span className="text-xs text-[var(--muted)]">لا تغلق الصفحة أثناء الرفع</span>
@@ -446,7 +419,7 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
                 <button
                   onClick={() => {
                     setItems(prev => prev.filter(i => i.status !== 'done'))
-                    setPhase('ready')
+                    setDone(false)
                   }}
                   className="text-xs text-amber-600 hover:underline"
                 >
@@ -454,15 +427,19 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
                 </button>
               )}
             </div>
-
-            {/* Right: actions */}
             <div className="flex items-center gap-2 mr-auto">
+              {phase === 'select' && (
+                <button onClick={onClose} className="btn-ghost px-4 py-2 text-sm rounded-xl">
+                  إلغاء
+                </button>
+              )}
               {phase === 'ready' && (
                 <>
                   <button onClick={onClose} className="btn-ghost px-4 py-2 text-sm rounded-xl">
                     إلغاء
                   </button>
                   <button
+                    type="button"
                     onClick={startUpload}
                     className="btn-primary px-5 py-2 text-sm rounded-xl flex items-center gap-2"
                   >
@@ -471,15 +448,16 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
                   </button>
                 </>
               )}
+              {phase === 'uploading' && (
+                <span className="flex items-center gap-2 text-sm text-[var(--muted)]">
+                  <Loader2 size={15} className="animate-spin" />
+                  جاري الرفع...
+                </span>
+              )}
               {phase === 'done' && (
                 <button onClick={onClose} className="btn-primary px-5 py-2 text-sm rounded-xl flex items-center gap-2">
                   <CheckCircle size={15} />
                   إغلاق
-                </button>
-              )}
-              {phase === 'select' && (
-                <button onClick={onClose} className="btn-ghost px-4 py-2 text-sm rounded-xl">
-                  إلغاء
                 </button>
               )}
             </div>
