@@ -28,6 +28,7 @@ app.use('/api/admin', require('./routes/admin'))
 app.use('/api/drive', require('./routes/drive'))
 app.use('/api/telegram', require('./routes/telegram'))
 app.use('/api/github', require('./routes/github'))
+app.use('/api/user', require('./routes/user'))
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }))
 

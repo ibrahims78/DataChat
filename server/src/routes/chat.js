@@ -1822,13 +1822,24 @@ router.post('/:projectId/message', async (req, res) => {
     if (!projectCheck.rows.length) return res.status(404).json({ error: 'Project not found' })
     if (req.user.role !== 'admin' && projectCheck.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' })
 
-    // Run all DB queries in parallel
-    const [filesResult, settingsResult, historyResult] = await Promise.all([
+    // Run all DB queries in parallel — including per-user AI settings override
+    const [filesResult, settingsResult, historyResult, userAiResult] = await Promise.all([
       db.query('SELECT f.*, p.user_id FROM files f JOIN projects p ON p.id=f.project_id WHERE f.project_id=$1', [req.params.projectId]),
       db.query('SELECT * FROM ai_settings WHERE id=1'),
-      db.query('SELECT role, content FROM messages WHERE conversation_id=$1 ORDER BY created_at DESC LIMIT 20', [conversationId])
+      db.query('SELECT role, content FROM messages WHERE conversation_id=$1 ORDER BY created_at DESC LIMIT 20', [conversationId]),
+      db.query('SELECT * FROM user_ai_settings WHERE user_id=$1', [req.user.id])
     ])
-    const aiConfig = settingsResult.rows[0] || {}
+    const globalConfig = settingsResult.rows[0] || {}
+    const userConfig = userAiResult.rows[0] || {}
+    // User settings override global (only if explicitly set)
+    const aiConfig = {
+      ...globalConfig,
+      ...(userConfig.provider ? { provider: userConfig.provider } : {}),
+      ...(userConfig.model ? { model: userConfig.model } : {}),
+      ...(userConfig.temperature != null ? { temperature: userConfig.temperature } : {}),
+      ...(userConfig.system_prompt ? { system_prompt: userConfig.system_prompt } : {}),
+      ...(userConfig.api_key ? { api_key: userConfig.api_key } : {}),
+    }
     const msgs = historyResult.rows.reverse()
 
     // Extract all file contents in parallel
@@ -2642,9 +2653,21 @@ router.get('/:projectId/context', async (req, res) => {
     )
     if (!projectCheck.rows.length) return res.status(404).json({ error: 'Project not found' })
 
-    // AI settings
-    const aiResult = await db.query('SELECT * FROM ai_settings WHERE id=1')
-    const aiConfig = aiResult.rows[0] || {}
+    // AI settings — per-user overrides global
+    const [aiResult, userAiResult2] = await Promise.all([
+      db.query('SELECT * FROM ai_settings WHERE id=1'),
+      db.query('SELECT * FROM user_ai_settings WHERE user_id=$1', [req.user.id])
+    ])
+    const globalAi2 = aiResult.rows[0] || {}
+    const userAi2 = userAiResult2.rows[0] || {}
+    const aiConfig = {
+      ...globalAi2,
+      ...(userAi2.provider ? { provider: userAi2.provider } : {}),
+      ...(userAi2.model ? { model: userAi2.model } : {}),
+      ...(userAi2.temperature != null ? { temperature: userAi2.temperature } : {}),
+      ...(userAi2.system_prompt ? { system_prompt: userAi2.system_prompt } : {}),
+      ...(userAi2.api_key ? { api_key: userAi2.api_key } : {}),
+    }
     const provider = aiConfig.provider || 'gemini'
 
     // Files

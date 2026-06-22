@@ -163,6 +163,19 @@ CREATE TABLE IF NOT EXISTS project_drive_links (
   UNIQUE(project_id, drive_file_id)
 );
 
+-- Per-user AI settings (API key, model, temperature override)
+CREATE TABLE IF NOT EXISTS user_ai_settings (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+  api_key TEXT,
+  provider VARCHAR(50) DEFAULT 'gemini',
+  model VARCHAR(100) DEFAULT 'gemini-2.5-flash',
+  temperature DECIMAL(3,2) DEFAULT 0.7,
+  system_prompt TEXT,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_user_ai_settings_user_id ON user_ai_settings(user_id);
+
 -- GitHub Settings (per user — Personal Access Token)
 CREATE TABLE IF NOT EXISTS github_settings (
   id SERIAL PRIMARY KEY,
