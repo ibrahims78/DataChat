@@ -14,16 +14,17 @@ const steps = [
 export default function OnboardingTour() {
   const [show, setShow] = useState(false)
   const [step, setStep] = useState(0)
-  const { user } = useAuth()
+  const { user, updateUser } = useAuth()
   const { lang } = useTheme()
   const tr = useT(lang)
 
   useEffect(() => {
     if (user && !user.onboarding_done && user.role === 'employee') setShow(true)
-  }, [user])
+  }, [user?.id])
 
   const finish = async () => {
     setShow(false)
+    updateUser({ onboarding_done: true })
     try { await api.post('/auth/complete-onboarding') } catch {}
   }
 
