@@ -129,6 +129,28 @@ INSERT INTO email_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
 -- Add last_seen_at to users if not exists
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP DEFAULT NULL;
 
+-- Google Drive Settings (admin-configured OAuth credentials)
+CREATE TABLE IF NOT EXISTS google_drive_settings (
+  id SERIAL PRIMARY KEY,
+  client_id TEXT DEFAULT NULL,
+  client_secret TEXT DEFAULT NULL,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+INSERT INTO google_drive_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
+
+-- Google OAuth tokens per user
+CREATE TABLE IF NOT EXISTS google_oauth (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+  access_token TEXT NOT NULL,
+  refresh_token TEXT,
+  token_expiry TIMESTAMP,
+  google_email VARCHAR(255),
+  google_name VARCHAR(255),
+  connected_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
 CREATE INDEX IF NOT EXISTS idx_files_project_id ON files(project_id);
@@ -136,3 +158,4 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation
 CREATE INDEX IF NOT EXISTS idx_conversations_project_id ON conversations(project_id);
 CREATE INDEX IF NOT EXISTS idx_generated_files_project_id ON generated_files(project_id);
 CREATE INDEX IF NOT EXISTS idx_folders_project_id ON folders(project_id);
+CREATE INDEX IF NOT EXISTS idx_google_oauth_user_id ON google_oauth(user_id);

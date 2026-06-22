@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Users, BarChart3, Settings, User, Star, Plus, Trash2, Eye, EyeOff, Mail, CheckCircle, XCircle, Loader2, KeyRound, Pencil, ShieldCheck, UserCheck, UserX } from 'lucide-react'
+import { Users, BarChart3, Settings, User, Star, Plus, Trash2, Eye, EyeOff, Mail, CheckCircle, XCircle, Loader2, KeyRound, Pencil, ShieldCheck, UserCheck, UserX, HardDrive } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useT } from '../i18n/translations'
 import { useAuth } from '../contexts/AuthContext'
@@ -7,7 +7,7 @@ import api from '../lib/api'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../components/ui/ConfirmModal'
 
-type Tab = 'stats' | 'users' | 'ai' | 'email' | 'profile' | 'ratings'
+type Tab = 'stats' | 'users' | 'ai' | 'email' | 'profile' | 'ratings' | 'google'
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('stats')
@@ -34,6 +34,10 @@ export default function SettingsPage() {
   const [inviteLink, setInviteLink] = useState('')
   const [profile, setProfile] = useState({ name: '', email: '', currentPassword: '', newPassword: '' })
   const [showPw, setShowPw] = useState(false)
+  const [googleSettings, setGoogleSettings] = useState({ client_id: '', client_secret: '', has_client_secret: false })
+  const [showGoogleSecret, setShowGoogleSecret] = useState(false)
+  const [googleSecretChanged, setGoogleSecretChanged] = useState(false)
+  const [savingGoogle, setSavingGoogle] = useState(false)
   const { lang, theme, toggleTheme, toggleLang } = useTheme()
   const tr = useT(lang)
   const { user, logout } = useAuth()
@@ -50,7 +54,24 @@ export default function SettingsPage() {
       if (tab === 'ai') { const r = await api.get('/admin/settings'); setAiSettings(r.data) }
       if (tab === 'email') { const r = await api.get('/admin/email-settings'); setEmailSettings(r.data); setSmtpPassChanged(false) }
       if (tab === 'ratings') { const r = await api.get('/admin/ratings'); setRatings(r.data) }
+      if (tab === 'google') {
+        const r = await api.get('/drive/settings')
+        setGoogleSettings({ client_id: r.data.client_id || '', client_secret: '', has_client_secret: r.data.has_client_secret })
+        setGoogleSecretChanged(false)
+      }
     } catch {}
+  }
+
+  const saveGoogleSettings = async () => {
+    setSavingGoogle(true)
+    try {
+      const payload: any = { client_id: googleSettings.client_id }
+      if (googleSecretChanged) payload.client_secret = googleSettings.client_secret
+      await api.post('/drive/settings', payload)
+      toast.success('تم حفظ إعدادات Google Drive')
+      fetchData()
+    } catch (err: any) { toast.error(err.response?.data?.error || 'فشل الحفظ') }
+    finally { setSavingGoogle(false) }
   }
 
   const saveEmail = async () => {
@@ -165,6 +186,7 @@ export default function SettingsPage() {
     { id: 'users', icon: Users, label: tr('users') },
     { id: 'ai', icon: Settings, label: tr('aiSettings') },
     { id: 'email', icon: Mail, label: 'البريد' },
+    { id: 'google', icon: HardDrive, label: 'Google Drive' },
     { id: 'profile', icon: User, label: tr('profile') },
     { id: 'ratings', icon: Star, label: 'التقييمات' },
   ]
@@ -632,6 +654,93 @@ export default function SettingsPage() {
                 : <><CheckCircle size={14} /> اختبار الاتصال</>}
             </button>
           </div>
+        </div>
+      )}
+
+      {tab === 'google' && (
+        <div className="card p-6 space-y-6 max-w-2xl">
+          {/* Header */}
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-green-500 flex items-center justify-center shrink-0 shadow-md">
+              <HardDrive size={24} className="text-white" />
+            </div>
+            <div>
+              <h2 className="font-bold text-lg text-[var(--text)]">إعدادات Google Drive</h2>
+              <p className="text-xs text-[var(--muted)]">أدخل بيانات OAuth 2.0 من Google Cloud Console لتفعيل التكامل</p>
+            </div>
+          </div>
+
+          {/* Client ID */}
+          <div>
+            <label className="block text-sm font-semibold text-[var(--text)] mb-2">
+              Client ID <span className="text-red-500">*</span>
+            </label>
+            <input
+              className="input-field font-mono text-sm"
+              type="text"
+              placeholder="XXXXXXXXXX-xxxx.apps.googleusercontent.com"
+              value={googleSettings.client_id}
+              onChange={e => setGoogleSettings(p => ({ ...p, client_id: e.target.value }))}
+              dir="ltr"
+            />
+          </div>
+
+          {/* Client Secret */}
+          <div>
+            <label className="block text-sm font-semibold text-[var(--text)] mb-2 flex items-center gap-2">
+              Client Secret <span className="text-red-500">*</span>
+              {googleSettings.has_client_secret && !googleSecretChanged && (
+                <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full font-normal">محفوظ</span>
+              )}
+            </label>
+            <div className="relative">
+              <input
+                className="input-field pe-10 font-mono text-sm"
+                type={showGoogleSecret ? 'text' : 'password'}
+                placeholder={googleSettings.has_client_secret && !googleSecretChanged ? '••••••••' : 'GOCSPX-xxxxxxxxxxxxxxxxxxxx'}
+                value={googleSettings.client_secret}
+                onChange={e => { setGoogleSettings(p => ({ ...p, client_secret: e.target.value })); setGoogleSecretChanged(true) }}
+                dir="ltr"
+              />
+              <button type="button" onClick={() => setShowGoogleSecret(!showGoogleSecret)}
+                className="absolute end-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)] transition-colors">
+                {showGoogleSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Redirect URI info */}
+          <div className="bg-[var(--bg)] border border-[var(--border)] rounded-xl p-4 space-y-2">
+            <p className="text-sm font-semibold text-[var(--text)] flex items-center gap-2">
+              <KeyRound size={15} className="text-primary-500" />
+              Redirect URI المطلوب في Google Cloud Console
+            </p>
+            <code className="block text-xs bg-[var(--surface)] border border-[var(--border)] rounded-lg p-3 text-primary-600 dark:text-primary-400 select-all font-mono break-all" dir="ltr">
+              {typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}/api/drive/auth/callback` : 'https://your-domain/api/drive/auth/callback'}
+            </code>
+            <p className="text-xs text-[var(--muted)]">أضف هذا الرابط في قائمة "Authorized redirect URIs" في إعدادات OAuth الخاصة بمشروعك</p>
+          </div>
+
+          {/* Instructions */}
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-2">
+            <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">📋 خطوات الإعداد في Google Cloud Console</p>
+            <ol className="text-xs text-blue-600 dark:text-blue-400 space-y-1.5 list-decimal list-inside">
+              <li>افتح <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" className="underline font-medium">Google Cloud Console</a> وأنشئ مشروعاً جديداً أو اختر مشروعاً موجوداً</li>
+              <li>من القائمة الجانبية: <strong>APIs &amp; Services → Library</strong> → ابحث عن <strong>"Google Drive API"</strong> وفعّله</li>
+              <li>من القائمة الجانبية: <strong>APIs &amp; Services → Credentials</strong> → اضغط <strong>"Create Credentials → OAuth client ID"</strong></li>
+              <li>اختر نوع التطبيق: <strong>"Web application"</strong> وأعطه اسماً</li>
+              <li>في خانة <strong>"Authorized redirect URIs"</strong> أضف الرابط الموضح أعلاه</li>
+              <li>انسخ <strong>Client ID</strong> و <strong>Client Secret</strong> والصقهما هنا</li>
+              <li>من <strong>OAuth consent screen</strong>: أضف نطاق التطبيق ونطاق Drive في قائمة Scopes</li>
+            </ol>
+            <p className="text-xs text-blue-500 dark:text-blue-500">⚠️ للاختبار: في OAuth consent screen اختر "External" وأضف حسابات المختبِرين يدوياً حتى يتم مراجعة التطبيق من Google.</p>
+          </div>
+
+          <button onClick={saveGoogleSettings} disabled={savingGoogle || !googleSettings.client_id}
+            className="btn-primary flex items-center gap-2">
+            {savingGoogle ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle size={15} />}
+            {savingGoogle ? 'جاري الحفظ...' : 'حفظ الإعدادات'}
+          </button>
         </div>
       )}
 

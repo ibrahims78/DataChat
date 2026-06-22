@@ -9,6 +9,7 @@ import RegisterPage from './pages/RegisterPage'
 import DashboardPage from './pages/DashboardPage'
 import ProjectPage from './pages/ProjectPage'
 import SettingsPage from './pages/SettingsPage'
+import GoogleDrivePage from './pages/GoogleDrivePage'
 import Layout from './components/layout/Layout'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -38,6 +39,7 @@ export default function App() {
               <Route index element={<DashboardPage />} />
               <Route path="project/:id" element={<ProjectPage />} />
               <Route path="settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
+              <Route path="drive" element={<GoogleDrivePage />} />
             </Route>
           </Routes>
         </BrowserRouter>

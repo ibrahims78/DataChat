@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Settings, LogOut, Database } from 'lucide-react'
+import { LayoutDashboard, Settings, LogOut, Database, HardDrive } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { useT } from '../../i18n/translations'
@@ -24,6 +24,11 @@ export default function Sidebar() {
       <NavLink to="/" end title={tr('dashboard')}
         className={({ isActive }) => `p-3 rounded-xl transition-colors ${isActive ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400' : 'text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)]'}`}>
         <LayoutDashboard size={20} />
+      </NavLink>
+
+      <NavLink to="/drive" title="Google Drive"
+        className={({ isActive }) => `p-3 rounded-xl transition-colors ${isActive ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400' : 'text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)]'}`}>
+        <HardDrive size={20} />
       </NavLink>
 
       {user?.role === 'admin' && (
