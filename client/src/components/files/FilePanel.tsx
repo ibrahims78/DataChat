@@ -325,25 +325,16 @@ export default function FilePanel({
             className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="إعادة التسمية">
             <Pencil size={11} />
           </button>
-          {(f.file_type === 'excel' || f.file_type === 'csv') ? (
-            <button onClick={e => { e.stopPropagation(); downloadFile(f) }}
-              className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="تحميل">
-              <Download size={11} />
+          {f.file_type !== 'image' && (
+            <button onClick={e => { e.stopPropagation(); showPreview(f) }}
+              className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="معاينة">
+              <Eye size={11} />
             </button>
-          ) : (
-            <>
-              <button onClick={e => { e.stopPropagation(); showPreview(f) }}
-                className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="معاينة">
-                <Eye size={11} />
-              </button>
-              {(f.file_type === 'markdown' || f.file_type === 'text' || f.file_type === 'json') && (
-                <button onClick={e => { e.stopPropagation(); downloadFile(f) }}
-                  className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="تحميل">
-                  <Download size={11} />
-                </button>
-              )}
-            </>
           )}
+          <button onClick={e => { e.stopPropagation(); downloadFile(f) }}
+            className="p-1 rounded hover:bg-primary-100 dark:hover:bg-primary-900/30 text-[var(--muted)] hover:text-primary-600 transition-colors" title="تحميل">
+            <Download size={11} />
+          </button>
           <button onClick={e => { e.stopPropagation(); setDeleteTarget({ type: 'file', item: f }) }}
             className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/20 text-[var(--muted)] hover:text-red-500 transition-colors" title="حذف">
             <Trash2 size={11} />

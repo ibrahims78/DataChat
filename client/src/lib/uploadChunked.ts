@@ -21,9 +21,8 @@ export async function uploadChunked(
     formData.append('chunkIndex', String(i))
     formData.append('totalChunks', String(totalChunks))
 
-    await api.post(`/files/${projectId}/upload-chunk`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
+    // Do NOT set Content-Type manually — let the browser set it with the correct boundary
+    await api.post(`/files/${projectId}/upload-chunk`, formData)
 
     // 0–90% = sending chunks, last 10% = assembling
     onProgress(Math.round(((i + 1) / totalChunks) * 90))

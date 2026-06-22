@@ -187,15 +187,22 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, snapshot.length) }, worker))
     uploadFinished()
 
+    let successCount = 0
+    let failCount = 0
     setItems(prev => {
-      const s = prev.filter(x => x.status === 'done').length
-      const f = prev.filter(x => x.status === 'error').length
-      if (f === 0) toast.success(`✅ تم رفع ${s} ${s === 1 ? 'ملف' : 'ملفات'} بنجاح`)
-      else if (s > 0) toast(`⚠️ ${s} بنجاح · ${f} فشل`, { duration: 5000 })
+      successCount = prev.filter(x => x.status === 'done').length
+      failCount = prev.filter(x => x.status === 'error').length
+      if (failCount === 0) toast.success(`✅ تم رفع ${successCount} ${successCount === 1 ? 'ملف' : 'ملفات'} بنجاح`)
+      else if (successCount > 0) toast(`⚠️ ${successCount} بنجاح · ${failCount} فشل`, { duration: 5000 })
       else toast.error('فشل رفع جميع الملفات')
       return prev
     })
     setPhase('done')
+
+    // Auto-close after 1.5 s when everything succeeded
+    if (failCount === 0) {
+      setTimeout(onClose, 1500)
+    }
   }
 
   // ─── Derived ─────────────────────────────────────────────────────────────────
