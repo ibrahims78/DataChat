@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Users, BarChart3, Settings, User, Star, Plus, Trash2, Eye, EyeOff, Mail, CheckCircle, XCircle, Loader2, KeyRound, Pencil, ShieldCheck, UserCheck, UserX, HardDrive } from 'lucide-react'
+import { Users, BarChart3, Settings, User, Star, Plus, Trash2, Eye, EyeOff, Mail, CheckCircle, XCircle, Loader2, KeyRound, Pencil, ShieldCheck, UserCheck, UserX, HardDrive, Send, Link, Unlink, Copy, RefreshCw } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useT } from '../i18n/translations'
 import { useAuth } from '../contexts/AuthContext'
@@ -7,7 +7,7 @@ import api from '../lib/api'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../components/ui/ConfirmModal'
 
-type Tab = 'stats' | 'users' | 'ai' | 'email' | 'profile' | 'ratings' | 'google'
+type Tab = 'stats' | 'users' | 'ai' | 'email' | 'profile' | 'ratings' | 'google' | 'telegram'
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('stats')
@@ -38,13 +38,24 @@ export default function SettingsPage() {
   const [showGoogleSecret, setShowGoogleSecret] = useState(false)
   const [googleSecretChanged, setGoogleSecretChanged] = useState(false)
   const [savingGoogle, setSavingGoogle] = useState(false)
+  // Telegram state
+  const [tgSettings, setTgSettings] = useState<any>({ connected: false })
+  const [tgToken, setTgToken] = useState('')
+  const [showTgToken, setShowTgToken] = useState(false)
+  const [tgProjects, setTgProjects] = useState<any[]>([])
+  const [tgProjectId, setTgProjectId] = useState<number | ''>('')
+  const [savingTg, setSavingTg] = useState(false)
+  const [disconnectingTg, setDisconnectingTg] = useState(false)
   const { lang, theme, toggleTheme, toggleLang } = useTheme()
   const tr = useT(lang)
   const { user, logout, updateUser } = useAuth()
 
   useEffect(() => { fetchData() }, [tab])
   useEffect(() => {
-    if (user) setProfile(p => ({ ...p, name: user.name, email: user.email }))
+    if (user) {
+      setProfile(p => ({ ...p, name: user.name, email: user.email }))
+      if (user.role !== 'admin') setTab('telegram')
+    }
   }, [user])
 
   const fetchData = async () => {
@@ -59,7 +70,53 @@ export default function SettingsPage() {
         setGoogleSettings({ client_id: r.data.client_id || '', client_secret: '', has_client_secret: r.data.has_client_secret })
         setGoogleSecretChanged(false)
       }
+      if (tab === 'telegram') {
+        const [sRes, pRes] = await Promise.all([
+          api.get('/telegram/settings'),
+          api.get('/telegram/projects')
+        ])
+        setTgSettings(sRes.data)
+        setTgProjects(pRes.data)
+        if (sRes.data.active_project_id) setTgProjectId(sRes.data.active_project_id)
+      }
     } catch {}
+  }
+
+  const connectTelegram = async () => {
+    if (!tgToken.trim()) return toast.error('أدخل توكن البوت')
+    setSavingTg(true)
+    try {
+      const r = await api.post('/telegram/connect', {
+        bot_token: tgToken.trim(),
+        active_project_id: tgProjectId || null
+      })
+      toast.success(r.data.message || 'تم الربط بنجاح!')
+      setTgToken('')
+      fetchData()
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'فشل الربط')
+    } finally { setSavingTg(false) }
+  }
+
+  const disconnectTelegram = async () => {
+    setDisconnectingTg(true)
+    try {
+      await api.delete('/telegram/disconnect')
+      toast.success('تم فصل البوت بنجاح')
+      setTgSettings({ connected: false })
+      setTgProjectId('')
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'فشل الفصل')
+    } finally { setDisconnectingTg(false) }
+  }
+
+  const updateTgProject = async (projectId: number) => {
+    try {
+      await api.patch('/telegram/project', { project_id: projectId })
+      setTgProjectId(projectId)
+      setTgSettings((p: any) => ({ ...p, active_project_id: projectId }))
+      toast.success('تم تحديث المشروع الافتراضي')
+    } catch { toast.error('فشل التحديث') }
   }
 
   const saveGoogleSettings = async () => {
@@ -183,15 +240,19 @@ export default function SettingsPage() {
     } catch (err: any) { toast.error(err.response?.data?.error || 'فشل الحفظ') }
   }
 
-  const tabs: { id: Tab; icon: any; label: string }[] = [
-    { id: 'stats', icon: BarChart3, label: tr('statistics') },
-    { id: 'users', icon: Users, label: tr('users') },
-    { id: 'ai', icon: Settings, label: tr('aiSettings') },
-    { id: 'email', icon: Mail, label: 'البريد' },
-    { id: 'google', icon: HardDrive, label: 'Google Drive' },
+  const isAdmin = user?.role === 'admin'
+
+  const allTabs: { id: Tab; icon: any; label: string; adminOnly?: boolean }[] = [
+    { id: 'stats', icon: BarChart3, label: tr('statistics'), adminOnly: true },
+    { id: 'users', icon: Users, label: tr('users'), adminOnly: true },
+    { id: 'ai', icon: Settings, label: tr('aiSettings'), adminOnly: true },
+    { id: 'email', icon: Mail, label: 'البريد', adminOnly: true },
+    { id: 'google', icon: HardDrive, label: 'Google Drive', adminOnly: true },
+    { id: 'telegram', icon: Send, label: 'تيليغرام' },
     { id: 'profile', icon: User, label: tr('profile') },
-    { id: 'ratings', icon: Star, label: 'التقييمات' },
+    { id: 'ratings', icon: Star, label: 'التقييمات', adminOnly: true },
   ]
+  const tabs = allTabs.filter(t => !t.adminOnly || isAdmin)
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto font-cairo">
@@ -782,6 +843,236 @@ export default function SettingsPage() {
             >
               <CheckCircle size={14} /> التحقق من الحفظ
             </button>
+          </div>
+        </div>
+      )}
+
+      {tab === 'telegram' && (
+        <div className="max-w-2xl space-y-5">
+          {/* Header */}
+          <div className="card p-6">
+            <div className="flex items-center gap-4 mb-5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#2AABEE] to-[#229ED9] flex items-center justify-center shrink-0 shadow-md">
+                <Send size={22} className="text-white" />
+              </div>
+              <div>
+                <h2 className="font-bold text-lg text-[var(--text)]">ربط تيليغرام</h2>
+                <p className="text-xs text-[var(--muted)]">اربط بوت تيليغرام الخاص بك واستخدم التشات مباشرةً لتحليل البيانات</p>
+              </div>
+              {tgSettings.connected && (
+                <span className="ms-auto flex items-center gap-1.5 text-xs font-semibold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-full px-3 py-1">
+                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                  متصل
+                </span>
+              )}
+            </div>
+
+            {/* Connected state */}
+            {tgSettings.connected ? (
+              <div className="space-y-4">
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle size={16} className="text-green-600 dark:text-green-400" />
+                    <span className="text-sm font-semibold text-green-700 dark:text-green-300">البوت متصل بنجاح</span>
+                  </div>
+                  <p className="text-sm text-green-700 dark:text-green-300">
+                    البوت: <span className="font-mono font-bold">@{tgSettings.bot_username}</span>
+                  </p>
+                  {tgSettings.bot_token_masked && (
+                    <p className="text-xs text-green-600 dark:text-green-400 font-mono">
+                      التوكن: {tgSettings.bot_token_masked}
+                    </p>
+                  )}
+                  {tgSettings.connected_at && (
+                    <p className="text-xs text-green-600 dark:text-green-500">
+                      تاريخ الربط: {new Date(tgSettings.connected_at).toLocaleString('ar')}
+                    </p>
+                  )}
+                </div>
+
+                {/* Active project selector */}
+                <div>
+                  <label className="block text-sm font-semibold text-[var(--text)] mb-2">
+                    المشروع الافتراضي للمحادثات
+                  </label>
+                  <select
+                    className="input-field"
+                    value={tgProjectId || ''}
+                    onChange={e => e.target.value && updateTgProject(parseInt(e.target.value))}
+                  >
+                    <option value="">— اختر مشروعاً —</option>
+                    {tgProjects.map(p => (
+                      <option key={p.id} value={p.id}>{p.pinned ? '📌 ' : ''}{p.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-[var(--muted)] mt-1">يمكن تغيير المشروع في أي وقت من داخل تيليغرام بالأمر /project</p>
+                </div>
+
+                {/* Webhook URL */}
+                {tgSettings.webhook_url && (
+                  <div>
+                    <label className="block text-sm font-semibold text-[var(--text)] mb-2">رابط الـ Webhook المسجّل</label>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 text-xs bg-[var(--bg)] border border-[var(--border)] rounded-lg p-2.5 text-[var(--muted)] font-mono break-all" dir="ltr">
+                        {tgSettings.webhook_url}
+                      </code>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(tgSettings.webhook_url); toast.success('تم النسخ') }}
+                        className="btn-ghost p-2 shrink-0"
+                        title="نسخ"
+                      >
+                        <Copy size={15} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={fetchData}
+                    className="btn-ghost text-sm flex items-center gap-2"
+                  >
+                    <RefreshCw size={14} /> تحديث
+                  </button>
+                  <button
+                    onClick={disconnectTelegram}
+                    disabled={disconnectingTg}
+                    className="btn-ghost text-sm text-red-500 hover:text-red-600 flex items-center gap-2 border-red-200 hover:border-red-300"
+                  >
+                    {disconnectingTg ? <Loader2 size={14} className="animate-spin" /> : <Unlink size={14} />}
+                    فصل البوت
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Disconnected state — connect form */
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-[var(--text)] mb-2">
+                    توكن البوت <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      className="input-field pe-10 font-mono text-sm"
+                      type={showTgToken ? 'text' : 'password'}
+                      placeholder="1234567890:ABCdefGHIjklMNOpqrSTUvwxYZ"
+                      value={tgToken}
+                      onChange={e => setTgToken(e.target.value)}
+                      dir="ltr"
+                      onKeyDown={e => e.key === 'Enter' && connectTelegram()}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowTgToken(!showTgToken)}
+                      className="absolute end-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)]"
+                    >
+                      {showTgToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  <p className="text-xs text-[var(--muted)] mt-1">الصق التوكن الذي أرسله @BotFather عند إنشاء البوت</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-[var(--text)] mb-2">المشروع الافتراضي (اختياري)</label>
+                  <select
+                    className="input-field"
+                    value={tgProjectId || ''}
+                    onChange={e => setTgProjectId(e.target.value ? parseInt(e.target.value) : '')}
+                  >
+                    <option value="">— يمكن تحديده لاحقاً —</option>
+                    {tgProjects.map(p => (
+                      <option key={p.id} value={p.id}>{p.pinned ? '📌 ' : ''}{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  onClick={connectTelegram}
+                  disabled={savingTg || !tgToken.trim()}
+                  className="btn-primary flex items-center gap-2 disabled:opacity-50"
+                >
+                  {savingTg ? <Loader2 size={15} className="animate-spin" /> : <Link size={15} />}
+                  {savingTg ? 'جاري الربط...' : 'ربط البوت'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* How to create a bot */}
+          <div className="card p-6">
+            <h3 className="font-semibold text-[var(--text)] mb-4 flex items-center gap-2">
+              <span className="text-lg">📋</span>
+              كيفية إنشاء بوت تيليغرام
+            </h3>
+            <ol className="space-y-3 text-sm text-[var(--text)]">
+              {[
+                { n: 1, text: 'افتح تيليغرام وابحث عن', code: '@BotFather' },
+                { n: 2, text: 'أرسل الأمر', code: '/newbot' },
+                { n: 3, text: 'أعطِ البوت اسماً ثم اسم مستخدم ينتهي بـ', code: '_bot' },
+                { n: 4, text: 'انسخ التوكن الذي يرسله BotFather والصقه أعلاه', code: null },
+                { n: 5, text: 'اضغط "ربط البوت" وسيتم التسجيل تلقائياً', code: null },
+              ].map(step => (
+                <li key={step.n} className="flex items-start gap-3">
+                  <span className="shrink-0 w-6 h-6 rounded-full bg-[#2AABEE]/10 text-[#2AABEE] text-xs font-bold flex items-center justify-center">{step.n}</span>
+                  <span className="text-[var(--muted)]">
+                    {step.text}
+                    {step.code && <code className="ms-1 bg-[var(--bg)] border border-[var(--border)] rounded px-1.5 py-0.5 text-[#2AABEE] font-mono text-xs">{step.code}</code>}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          {/* Features list */}
+          <div className="card p-6">
+            <h3 className="font-semibold text-[var(--text)] mb-4 flex items-center gap-2">
+              <span className="text-lg">✨</span>
+              ما يمكنك فعله في تيليغرام
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                { icon: '💬', title: 'دردشة ذكية', desc: 'أسئلة وتحليل فوري بالذكاء الاصطناعي' },
+                { icon: '📎', title: 'رفع ملفات', desc: 'Excel, CSV, PDF, Word, TXT, JSON' },
+                { icon: '📊', title: 'توليد Excel', desc: 'إنشاء تقارير وجداول بيانات' },
+                { icon: '📂', title: 'إدارة المشاريع', desc: 'تبديل وإنشاء مشاريع بأوامر سهلة' },
+                { icon: '📁', title: 'عرض الملفات', desc: 'استعراض ملفات المشروع الحالي' },
+                { icon: '📤', title: 'استلام الملفات', desc: 'يُرسل لك الملفات المُولَّدة مباشرةً' },
+                { icon: '🔄', title: 'سجل المحادثة', desc: 'يتذكر سياق المحادثة تلقائياً' },
+                { icon: '🧹', title: 'مسح المحادثة', desc: 'ابدأ محادثة جديدة بالأمر /clear' },
+              ].map((f, i) => (
+                <div key={i} className="flex items-start gap-3 bg-[var(--bg)] rounded-xl p-3">
+                  <span className="text-xl shrink-0">{f.icon}</span>
+                  <div>
+                    <p className="text-sm font-semibold text-[var(--text)]">{f.title}</p>
+                    <p className="text-xs text-[var(--muted)]">{f.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Commands reference */}
+          <div className="card p-6">
+            <h3 className="font-semibold text-[var(--text)] mb-4 flex items-center gap-2">
+              <span className="text-lg">⌨️</span>
+              أوامر البوت
+            </h3>
+            <div className="space-y-2">
+              {[
+                { cmd: '/start', desc: 'الشاشة الرئيسية ومعلومات المشروع' },
+                { cmd: '/projects', desc: 'عرض جميع مشاريعك' },
+                { cmd: '/project اسم', desc: 'التبديل إلى مشروع محدد' },
+                { cmd: '/newproject اسم', desc: 'إنشاء مشروع جديد' },
+                { cmd: '/files', desc: 'عرض ملفات المشروع الحالي' },
+                { cmd: '/clear', desc: 'مسح سجل المحادثة الحالية' },
+                { cmd: '/help', desc: 'قائمة المساعدة الكاملة' },
+              ].map(c => (
+                <div key={c.cmd} className="flex items-center gap-3 py-2 border-b border-[var(--border)] last:border-0">
+                  <code className="text-xs bg-[var(--bg)] border border-[var(--border)] rounded px-2 py-1 font-mono text-[#2AABEE] shrink-0 min-w-[140px]">{c.cmd}</code>
+                  <span className="text-sm text-[var(--muted)]">{c.desc}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

@@ -30,12 +30,10 @@ export default function BottomNav() {
         <span>{tr('dashboard')}</span>
       </NavLink>
 
-      {user?.role === 'admin' && (
-        <NavLink to="/settings" className={({ isActive }) => `flex flex-col items-center gap-1 px-4 py-1 rounded-lg text-xs transition-colors ${isActive ? 'text-primary-600' : 'text-[var(--muted)]'}`}>
-          <Settings size={22} />
-          <span>{tr('settings')}</span>
-        </NavLink>
-      )}
+      <NavLink to="/settings" className={({ isActive }) => `flex flex-col items-center gap-1 px-4 py-1 rounded-lg text-xs transition-colors ${isActive ? 'text-primary-600' : 'text-[var(--muted)]'}`}>
+        <Settings size={22} />
+        <span>{tr('settings')}</span>
+      </NavLink>
 
       <div className="relative flex flex-col items-center" ref={ref}>
         <button
@@ -55,13 +53,11 @@ export default function BottomNav() {
               <p className="text-xs text-[var(--muted)]">{user?.email}</p>
             </div>
 
-            {user?.role === 'admin' && (
-              <button onClick={() => { navigate('/settings'); setMenuOpen(false) }}
-                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)] transition-colors">
-                <User size={16} />
-                <span>{tr('profile')}</span>
-              </button>
-            )}
+            <button onClick={() => { navigate('/settings'); setMenuOpen(false) }}
+              className="w-full flex items-center gap-3 px-4 py-2 text-sm text-[var(--text)] hover:bg-[var(--bg)] transition-colors">
+              <User size={16} />
+              <span>{tr('profile')}</span>
+            </button>
 
             <div className="border-t border-[var(--border)] mt-1 pt-1">
               <button onClick={toggleLang}

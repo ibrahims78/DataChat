@@ -26,12 +26,10 @@ export default function Sidebar() {
         <LayoutDashboard size={20} />
       </NavLink>
 
-      {user?.role === 'admin' && (
-        <NavLink to="/settings" title={tr('settings')}
-          className={({ isActive }) => `p-3 rounded-xl transition-colors ${isActive ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400' : 'text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)]'}`}>
-          <Settings size={20} />
-        </NavLink>
-      )}
+      <NavLink to="/settings" title={tr('settings')}
+        className={({ isActive }) => `p-3 rounded-xl transition-colors ${isActive ? 'bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400' : 'text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)]'}`}>
+        <Settings size={20} />
+      </NavLink>
 
       <div className="mt-auto">
         <AvatarMenu />

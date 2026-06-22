@@ -163,6 +163,31 @@ CREATE TABLE IF NOT EXISTS project_drive_links (
   UNIQUE(project_id, drive_file_id)
 );
 
+-- Telegram Bot Settings (per user)
+CREATE TABLE IF NOT EXISTS telegram_settings (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+  bot_token TEXT NOT NULL,
+  bot_username VARCHAR(255),
+  webhook_secret VARCHAR(255) NOT NULL,
+  webhook_url TEXT,
+  active_project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  is_active BOOLEAN DEFAULT true,
+  connected_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Telegram Chat Sessions (maps Telegram chat_id to user conversation)
+CREATE TABLE IF NOT EXISTS telegram_chats (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  telegram_chat_id BIGINT NOT NULL,
+  active_project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+  conversation_id INTEGER REFERENCES conversations(id) ON DELETE SET NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, telegram_chat_id)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
 CREATE INDEX IF NOT EXISTS idx_drive_links_project_id ON project_drive_links(project_id);

@@ -39,7 +39,7 @@ export default function App() {
             <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
               <Route index element={<DashboardPage />} />
               <Route path="project/:id" element={<ProjectPage />} />
-              <Route path="settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
+              <Route path="settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
             </Route>
           </Routes>
         </BrowserRouter>
