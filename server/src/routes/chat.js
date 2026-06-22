@@ -86,7 +86,8 @@ function repairJSON(raw) {
 }
 
 function getGenAI(apiKey) {
-  return new GoogleGenerativeAI(apiKey || process.env.GEMINI_API_KEY || '')
+  if (!apiKey) throw new Error('لم يتم ضبط مفتاح Gemini API. يرجى إضافته من الإعدادات.')
+  return new GoogleGenerativeAI(apiKey)
 }
 
 const UPLOADS_DIR = path.join(__dirname, '../../../uploads')
@@ -1125,7 +1126,10 @@ async function extractFileContent(file) {
         }
         const mimeType = mimeMap[ext] || 'image/jpeg'
         const imageData = fs.readFileSync(filePath).toString('base64')
-        const genAI = getGenAI()
+        const aiRow = await db.query('SELECT api_key FROM ai_settings WHERE id=1')
+        const ocrApiKey = aiRow.rows[0]?.api_key || null
+        if (!ocrApiKey) return `[ملف صورة: ${file.original_name}]\n[تعذّر استخراج النص: لم يتم ضبط مفتاح Gemini API في الإعدادات]`
+        const genAI = getGenAI(ocrApiKey)
         const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
         const result = await model.generateContent([
           {
@@ -2016,7 +2020,16 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
 
     const provider = aiConfig.provider || 'gemini'
     const selectedModel = aiConfig.model || (provider === 'openai' ? 'gpt-4o-mini' : 'gemini-2.5-flash')
-    const genAI = getGenAI(aiConfig.api_key)
+
+    let genAI
+    if (provider === 'gemini') {
+      if (!aiConfig.api_key) {
+        res.write(`data: ${JSON.stringify({ type: 'text', content: 'عذراً، لم يتم ضبط مفتاح Gemini API. يرجى إضافته من صفحة الإعدادات ← إعدادات AI.' })}\n\n`)
+        res.write('data: [DONE]\n\n')
+        return res.end()
+      }
+      genAI = getGenAI(aiConfig.api_key)
+    }
 
     let fullResponse = ''
 
