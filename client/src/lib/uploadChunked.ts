@@ -1,5 +1,3 @@
-import api from './api'
-
 const CHUNK_SIZE = 5 * 1024 * 1024 // 5 MB per chunk
 
 export async function uploadChunked(
@@ -22,9 +20,6 @@ export async function uploadChunked(
     formData.append('chunkIndex', String(i))
     formData.append('totalChunks', String(totalChunks))
 
-    // Use fetch (not axios) so the browser sets Content-Type + boundary automatically.
-    // axios defaults to Content-Type: application/json which causes it to
-    // serialize FormData to JSON, breaking multer on the server.
     const res = await fetch(`/api/files/${projectId}/upload-chunk`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
@@ -36,17 +31,31 @@ export async function uploadChunked(
       throw Object.assign(new Error(err.error || 'فشل رفع الجزء'), { response: { data: err } })
     }
 
-    // 0–90% = sending chunks, last 10% = assembling
     onProgress(Math.round(((i + 1) / totalChunks) * 90))
   }
 
   onProgress(95)
-  // assemble-chunks sends JSON — use api (axios) as normal
-  const res = await api.post(`/files/${projectId}/assemble-chunks`, {
-    uploadId,
-    fileName: file.name,
-    totalChunks: String(totalChunks),
+
+  // Use fetch (not axios) for assemble too — avoids any axios interceptor issues
+  const assembleRes = await fetch(`/api/files/${projectId}/assemble-chunks`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      uploadId,
+      fileName: file.name,
+      totalChunks: String(totalChunks),
+    }),
   })
+
+  if (!assembleRes.ok) {
+    const err = await assembleRes.json().catch(() => ({ error: 'فشل تجميع الملف' }))
+    throw Object.assign(new Error(err.error || 'فشل تجميع الملف'), { response: { data: err } })
+  }
+
+  const data = await assembleRes.json()
   onProgress(100)
-  return res.data
+  return data
 }

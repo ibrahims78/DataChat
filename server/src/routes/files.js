@@ -319,11 +319,16 @@ router.post('/:projectId/upload-chunk', uploadChunk.single('chunk'), async (req,
 
 router.post('/:projectId/assemble-chunks', async (req, res) => {
   const { uploadId, fileName, totalChunks } = req.body
-  if (!uploadId || !fileName || !totalChunks) return res.status(400).json({ error: 'Missing params' })
+  console.log(`[assemble] projectId=${req.params.projectId} uploadId=${uploadId} fileName=${fileName} totalChunks=${totalChunks} user=${req.user?.id}`)
+  if (!uploadId || !fileName || !totalChunks) {
+    console.log('[assemble] missing params')
+    return res.status(400).json({ error: 'Missing params' })
+  }
 
   const allowed = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf', '.docx', '.doc', '.md', '.txt', '.json', '.html', '.htm',
     '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.heic', '.heif']
   const ext = path.extname(fileName).toLowerCase()
+  console.log(`[assemble] ext="${ext}" allowed=${allowed.includes(ext)}`)
   if (!allowed.includes(ext)) return res.status(400).json({ error: 'File type not supported' })
 
   const unique = Date.now() + '-' + Math.round(Math.random() * 1e9)

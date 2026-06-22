@@ -153,7 +153,6 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
   async function startUpload() {
     if (uploading || items.length === 0) return
 
-    console.log('[upload] starting', items.length, 'files for project', projectId)
     setUploading(true)
     uploadStarted()
 
@@ -163,16 +162,13 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
     for (const item of items) {
       setItems(prev => prev.map(x => x.id === item.id ? { ...x, status: 'uploading', progress: 0 } : x))
       try {
-        console.log('[upload] uploading:', item.file.name, 'size:', item.file.size)
         const data = await uploadChunked(item.file, projectId, pct => {
           setItems(prev => prev.map(x => x.id === item.id ? { ...x, progress: pct } : x))
         })
-        console.log('[upload] done:', item.file.name)
         successCount++
         setItems(prev => prev.map(x => x.id === item.id ? { ...x, status: 'done', progress: 100 } : x))
         await onUploaded(data.file, true)
       } catch (err: any) {
-        console.error('[upload] failed:', item.file.name, err)
         failCount++
         const msg = err?.response?.data?.error || err?.message || 'فشل الرفع'
         setItems(prev => prev.map(x => x.id === item.id ? { ...x, status: 'error', error: msg } : x))
