@@ -3,7 +3,7 @@ import {
   HardDrive, FolderOpen, Folder, RefreshCw, FolderPlus,
   ChevronLeft, Search, X, Link2Off, Download, Trash2, Copy,
   FileInput, Pencil, Loader2, AlertCircle, ExternalLink,
-  MoreVertical, Home, Link, Link2, Settings
+  MoreVertical, Home, Link, Link2, Settings, FolderInput
 } from 'lucide-react'
 import api from '../../lib/api'
 import toast from 'react-hot-toast'
@@ -137,6 +137,12 @@ export default function DrivePanelTab({ projectId, onImport }: Props) {
   const [previewFile, setPreviewFile] = useState<DriveFile | null>(null)
   const [previewData, setPreviewData] = useState<any>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+
+  // Move modal state
+  const [moveTarget, setMoveTarget] = useState<DriveFile | null>(null)
+  const [moveFolders, setMoveFolders] = useState<DriveFile[]>([])
+  const [moveLoading, setMoveLoading] = useState(false)
+  const [moveFoldersLoading, setMoveFoldersLoading] = useState(false)
 
   // Link-to-AI state
   const [linkingId, setLinkingId] = useState<string | null>(null)
@@ -303,6 +309,29 @@ export default function DrivePanelTab({ projectId, onImport }: Props) {
       setNewFolderName(''); setShowNewFolder(false)
       loadFiles(currentFolder)
     } catch (err: any) { toast.error(err.response?.data?.error || 'فشل الإنشاء') }
+  }
+
+  const openMoveModal = async (file: DriveFile) => {
+    setMoveTarget(file)
+    setMoveFoldersLoading(true)
+    try {
+      const r = await api.get('/drive/files', { params: { folderId: 'root' } })
+      const allFolders = (r.data.files ?? r.data).filter((f: DriveFile) => f.mimeType === FOLDER_MIME && f.id !== file.id)
+      setMoveFolders([{ id: 'root', name: 'My Drive (الجذر)', mimeType: FOLDER_MIME }, ...allFolders])
+    } catch { toast.error('فشل تحميل المجلدات') }
+    finally { setMoveFoldersLoading(false) }
+  }
+
+  const doMove = async (targetFolderId: string) => {
+    if (!moveTarget) return
+    setMoveLoading(true)
+    try {
+      await api.patch(`/drive/file/${moveTarget.id}/move`, { targetFolderId })
+      toast.success(`تم نقل "${moveTarget.name}"`)
+      setMoveTarget(null)
+      loadFiles(currentFolder)
+    } catch (err: any) { toast.error(err.response?.data?.error || 'فشل النقل') }
+    finally { setMoveLoading(false) }
   }
 
   const doPreview = async (file: DriveFile) => {
@@ -554,6 +583,8 @@ export default function DrivePanelTab({ projectId, onImport }: Props) {
             <MenuItem icon={Copy} label="نسخ"
               onClick={() => { doCopy(menuFile); setMenuFile(null) }} />
           )}
+          <MenuItem icon={FolderInput} label="نقل إلى مجلد"
+            onClick={() => { openMoveModal(menuFile); setMenuFile(null) }} />
           {menuFile.webViewLink && (
             <MenuItem icon={ExternalLink} label="فتح في Drive"
               onClick={() => { window.open(menuFile.webViewLink, '_blank'); setMenuFile(null) }} />
@@ -601,6 +632,37 @@ export default function DrivePanelTab({ projectId, onImport }: Props) {
         onCancel={() => setDeleteTarget(null)}
         onConfirm={doDelete}
       />
+
+      {/* ── Move Modal ── */}
+      {moveTarget && (
+        <Modal title={`نقل: ${moveTarget.name}`} onClose={() => setMoveTarget(null)}>
+          <p className="text-xs text-[var(--muted)] mb-3">اختر المجلد المستهدف:</p>
+          {moveFoldersLoading ? (
+            <div className="flex items-center justify-center py-6 gap-2">
+              <Loader2 size={18} className="animate-spin text-primary-500" />
+              <span className="text-xs text-[var(--muted)]">جاري تحميل المجلدات...</span>
+            </div>
+          ) : (
+            <div className="max-h-52 overflow-y-auto space-y-0.5 rounded-xl border border-[var(--border)] p-1">
+              {moveFolders.map(folder => (
+                <button
+                  key={folder.id}
+                  onClick={() => doMove(folder.id)}
+                  disabled={moveLoading}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-[var(--text)] hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-colors text-start"
+                >
+                  {moveLoading ? <Loader2 size={13} className="animate-spin shrink-0" /> : <Folder size={13} className="text-amber-500 shrink-0" />}
+                  {folder.name}
+                </button>
+              ))}
+              {moveFolders.length === 0 && (
+                <p className="text-xs text-[var(--muted)] text-center py-4">لا توجد مجلدات</p>
+              )}
+            </div>
+          )}
+          <button onClick={() => setMoveTarget(null)} className="btn-ghost w-full mt-3 text-xs">إلغاء</button>
+        </Modal>
+      )}
 
       {/* ── Import Modal ── */}
       {importTarget && (
