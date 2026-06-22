@@ -202,7 +202,6 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
   return (
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={canClose ? onClose : undefined}
     >
       <div
         className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-lg max-h-[88vh] flex flex-col animate-fade-in"
