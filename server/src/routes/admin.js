@@ -248,28 +248,45 @@ router.patch('/settings', async (req, res) => {
 
 router.post('/settings/test-api', async (req, res) => {
   try {
-    const { api_key, provider } = req.body
+    const { api_key, provider, model: reqModel, proxy_url } = req.body
     let keyToTest = api_key
     // if masked value sent, use the stored key
     if (!api_key || api_key.includes('•')) {
-      const result = await db.query('SELECT api_key FROM ai_settings WHERE id=1')
+      const result = await db.query('SELECT api_key, proxy_url FROM ai_settings WHERE id=1')
       keyToTest = result.rows[0]?.api_key || process.env.GEMINI_API_KEY
     }
     if (!keyToTest) return res.status(400).json({ error: 'لم يتم إدخال مفتاح API' })
 
-    if (provider === 'openai') {
-      const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+    if (provider === 'openai' || provider === 'agentrouter') {
+      const defaultEndpoint = provider === 'agentrouter'
+        ? 'https://agentrouter.org/v1'
+        : 'https://api.openai.com/v1'
+      const baseUrl = (proxy_url && proxy_url.trim()) || defaultEndpoint
+      const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`
+      const testModel = reqModel || (provider === 'openai' ? 'gpt-4o-mini' : 'claude-3-5-haiku')
+      const testRes = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${keyToTest}` },
-        body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: 'hi' }], max_tokens: 5 })
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${keyToTest}`,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ model: testModel, messages: [{ role: 'user', content: 'hi' }], max_tokens: 5 }),
+        signal: AbortSignal.timeout(15000)
       })
-      if (openaiRes.ok) {
-        return res.json({ success: true, message: 'مفتاح OpenAI API صحيح ويعمل بشكل جيد ✓' })
+      if (testRes.ok) {
+        const providerLabel = provider === 'agentrouter' ? 'AgentRouter' : 'OpenAI'
+        return res.json({ success: true, message: `مفتاح ${providerLabel} API صحيح ويعمل بشكل جيد ✓` })
       }
-      const errText = await openaiRes.text()
-      if (openaiRes.status === 401) return res.status(400).json({ error: 'مفتاح OpenAI غير صحيح أو منتهي الصلاحية' })
-      if (openaiRes.status === 429) return res.status(400).json({ error: 'تم استنفاد حصة OpenAI API' })
-      return res.status(400).json({ error: `فشل التحقق (${openaiRes.status}): ${errText.substring(0, 200)}` })
+      const errText = await testRes.text()
+      let errMsg = ''
+      try { errMsg = JSON.parse(errText)?.error?.message || JSON.parse(errText)?.message || '' } catch {}
+      if (testRes.status === 401) return res.status(400).json({ error: 'مفتاح API غير صحيح أو منتهي الصلاحية' + (errMsg ? `: ${errMsg}` : '') })
+      if (testRes.status === 403) return res.status(400).json({ error: 'الوصول مرفوض — تحقق من صلاحيات المفتاح' + (errMsg ? `: ${errMsg}` : '') })
+      if (testRes.status === 404) return res.status(400).json({ error: `النموذج "${testModel}" غير موجود — تحقق من اسمه` })
+      if (testRes.status === 429) return res.status(400).json({ error: 'تم استنفاد حصة API — حاول لاحقاً' })
+      return res.status(400).json({ error: `فشل التحقق (${testRes.status}): ${(errMsg || errText).substring(0, 200)}` })
     }
 
     const { GoogleGenerativeAI } = require('@google/generative-ai')
@@ -288,6 +305,8 @@ router.post('/settings/test-api', async (req, res) => {
       res.status(400).json({ error: 'مفتاح API غير صحيح' })
     } else if (msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED')) {
       res.status(400).json({ error: 'تم استنفاد حصة API' })
+    } else if (msg.includes('TimeoutError') || msg.includes('timeout') || msg.includes('abort')) {
+      res.status(400).json({ error: 'انتهت مهلة الاتصال — تحقق من الرابط وصحة المفتاح' })
     } else {
       res.status(400).json({ error: 'فشل التحقق: ' + msg })
     }

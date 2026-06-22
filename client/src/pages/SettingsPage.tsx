@@ -13,7 +13,7 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('stats')
   const [stats, setStats] = useState<any>(null)
   const [users, setUsers] = useState<any[]>([])
-  const [aiSettings, setAiSettings] = useState<any>({ system_prompt: '', temperature: 0.7, model: 'gemini-2.5-flash', api_key: '', provider: 'gemini' })
+  const [aiSettings, setAiSettings] = useState<any>({ system_prompt: '', temperature: 0.7, model: 'gemini-2.5-flash', api_key: '', provider: 'gemini', proxy_url: '' })
   const [showApiKey, setShowApiKey] = useState(false)
   const [apiKeyChanged, setApiKeyChanged] = useState(false)
   const [testingApi, setTestingApi] = useState(false)
@@ -164,7 +164,8 @@ export default function SettingsPage() {
       const r = await api.post('/admin/settings/test-api', {
         api_key: aiSettings.api_key,
         provider: aiSettings.provider,
-        model: aiSettings.model
+        model: aiSettings.model,
+        proxy_url: aiSettings.proxy_url || ''
       })
       setApiTestResult({ ok: true, msg: r.data.message })
     } catch (err: any) {
@@ -429,13 +430,18 @@ export default function SettingsPage() {
             <label className="block text-sm font-semibold text-[var(--text)] mb-2">مزوّد الذكاء الاصطناعي</label>
             <div className="grid grid-cols-3 gap-3">
               {[
-                { id: 'gemini', label: 'Google Gemini', badge: 'خادم', icon: '🤖' },
-                { id: 'openai', label: 'OpenAI', badge: 'خادم', icon: '🟢' },
+                { id: 'gemini', label: 'Google Gemini', badge: 'موصى به', icon: '🤖' },
+                { id: 'openai', label: 'OpenAI', badge: 'GPT / o1', icon: '🟢' },
+                { id: 'agentrouter', label: 'AgentRouter', badge: 'نماذج متعددة', icon: '🔀' },
               ].map(p => (
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => { setAiSettings((s: any) => ({ ...s, provider: p.id })); setApiTestResult(null) }}
+                  onClick={() => {
+                    const defaultModel = p.id === 'gemini' ? 'gemini-2.5-flash' : p.id === 'openai' ? 'gpt-4o-mini' : aiSettings.model
+                    setAiSettings((s: any) => ({ ...s, provider: p.id, model: defaultModel }))
+                    setApiTestResult(null)
+                  }}
                   className={`flex items-center gap-3 p-3 rounded-xl border-2 text-start transition-all ${
                     aiSettings.provider === p.id
                       ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
@@ -460,7 +466,7 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2 mb-1">
               <KeyRound size={16} className="text-primary-600" />
               <label className="text-sm font-semibold text-[var(--text)]">
-                {aiSettings.provider === 'openai' ? 'مفتاح OpenAI API' : 'مفتاح Gemini API'}
+                {aiSettings.provider === 'openai' ? 'مفتاح OpenAI API' : aiSettings.provider === 'agentrouter' ? 'مفتاح AgentRouter API' : 'مفتاح Gemini API'}
               </label>
               {aiSettings.has_api_key && !apiKeyChanged && (
                 <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">محفوظ</span>
@@ -470,7 +476,7 @@ export default function SettingsPage() {
               <input
                 className="input-field pe-20 font-mono text-sm"
                 type={showApiKey ? 'text' : 'password'}
-                placeholder={aiSettings.provider === 'openai' ? 'sk-...' : 'AIzaSy...'}
+                placeholder={aiSettings.provider === 'openai' ? 'sk-...' : aiSettings.provider === 'agentrouter' ? 'ar-...' : 'AIzaSy...'}
                 value={aiSettings.api_key}
                 onChange={e => {
                   setAiSettings((p: any) => ({ ...p, api_key: e.target.value }))
@@ -496,7 +502,7 @@ export default function SettingsPage() {
                   ? <><Loader2 size={14} className="animate-spin" /> جاري التحقق...</>
                   : 'اختبار المفتاح'}
               </button>
-              {apiTestResult && !(apiTestResult as any).warn && (
+              {apiTestResult && (
                 <div className={`flex items-center gap-1.5 text-sm font-medium ${apiTestResult.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                   {apiTestResult.ok ? <CheckCircle size={15} /> : <XCircle size={15} />}
                   {apiTestResult.msg}
@@ -508,6 +514,10 @@ export default function SettingsPage() {
                 <>احصل على مفتاحك من{' '}
                   <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">platform.openai.com/api-keys</a>.
                   المفتاح يبدأ بـ sk- ويُحفظ بشكل آمن على الخادم.</>
+              ) : aiSettings.provider === 'agentrouter' ? (
+                <>احصل على مفتاحك من{' '}
+                  <a href="https://agentrouter.org" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">agentrouter.org</a>.
+                  يتيح لك الوصول لعشرات النماذج (Claude، GPT، Mistral...) بمفتاح واحد.</>
               ) : (
                 <>احصل على مفتاحك من{' '}
                   <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">Google AI Studio</a>.
@@ -519,7 +529,7 @@ export default function SettingsPage() {
           {/* Model selector */}
           <div>
             <label className="block text-sm font-semibold text-[var(--text)] mb-2">
-              {aiSettings.provider === 'openai' ? 'نموذج OpenAI' : 'نموذج Gemini'}
+              {aiSettings.provider === 'openai' ? 'نموذج OpenAI' : aiSettings.provider === 'agentrouter' ? 'اسم النموذج (AgentRouter)' : 'نموذج Gemini'}
             </label>
             {aiSettings.provider === 'openai' ? (
               <select className="input-field" value={aiSettings.model} onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}>
@@ -529,6 +539,14 @@ export default function SettingsPage() {
                 <option value="gpt-3.5-turbo">GPT-3.5 Turbo (اقتصادي)</option>
                 <option value="o1-mini">o1 Mini (تفكير)</option>
               </select>
+            ) : aiSettings.provider === 'agentrouter' ? (
+              <input
+                className="input-field font-mono text-sm"
+                placeholder="مثال: claude-3-5-sonnet، gpt-4o، mistral-large..."
+                value={aiSettings.model}
+                onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}
+                dir="ltr"
+              />
             ) : (
               <select className="input-field" value={aiSettings.model} onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}>
                 <option value="gemini-2.5-flash">Gemini 2.5 Flash (موصى به)</option>
@@ -538,6 +556,28 @@ export default function SettingsPage() {
               </select>
             )}
           </div>
+
+          {/* Proxy URL — shown for openai and agentrouter */}
+          {(aiSettings.provider === 'openai' || aiSettings.provider === 'agentrouter') && (
+            <div>
+              <label className="block text-sm font-semibold text-[var(--text)] mb-2">
+                {aiSettings.provider === 'agentrouter' ? 'رابط خادم AgentRouter (Proxy)' : 'رابط Proxy مخصص (اختياري)'}
+              </label>
+              <input
+                className="input-field font-mono text-sm"
+                type="url"
+                placeholder={aiSettings.provider === 'agentrouter' ? 'https://agentrouter.org/v1' : 'https://api.openai.com/v1 (افتراضي)'}
+                value={aiSettings.proxy_url || ''}
+                onChange={e => setAiSettings((p: any) => ({ ...p, proxy_url: e.target.value }))}
+                dir="ltr"
+              />
+              <p className="text-xs text-[var(--muted)] mt-1">
+                {aiSettings.provider === 'agentrouter'
+                  ? 'اتركه فارغاً لاستخدام https://agentrouter.org/v1 الافتراضي.'
+                  : 'اتركه فارغاً لاستخدام OpenAI المباشر. أضف عنوان Proxy إذا كنت خلف جدار ناري أو تستخدم خادماً وسيطاً.'}
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-semibold text-[var(--text)] mb-2">{tr('systemPrompt')}</label>
@@ -736,11 +776,29 @@ export default function SettingsPage() {
             <p className="text-xs text-blue-500 dark:text-blue-500">⚠️ للاختبار: في OAuth consent screen اختر "External" وأضف حسابات المختبِرين يدوياً حتى يتم مراجعة التطبيق من Google.</p>
           </div>
 
-          <button onClick={saveGoogleSettings} disabled={savingGoogle || !googleSettings.client_id}
-            className="btn-primary flex items-center gap-2">
-            {savingGoogle ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle size={15} />}
-            {savingGoogle ? 'جاري الحفظ...' : 'حفظ الإعدادات'}
-          </button>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button onClick={saveGoogleSettings} disabled={savingGoogle || !googleSettings.client_id}
+              className="btn-primary flex items-center gap-2">
+              {savingGoogle ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle size={15} />}
+              {savingGoogle ? 'جاري الحفظ...' : 'حفظ الإعدادات'}
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  const r = await api.get('/drive/settings')
+                  if (r.data.client_id && r.data.has_client_secret) {
+                    toast.success('✅ بيانات OAuth محفوظة بشكل صحيح — سيتم التحقق الفعلي عند أول تسجيل دخول بـ Google')
+                  } else {
+                    toast.error('⚠️ يرجى حفظ Client ID و Client Secret أولاً')
+                  }
+                } catch { toast.error('فشل التحقق') }
+              }}
+              disabled={!googleSettings.client_id}
+              className="btn-ghost text-sm flex items-center gap-2 disabled:opacity-50"
+            >
+              <CheckCircle size={14} /> التحقق من الحفظ
+            </button>
+          </div>
         </div>
       )}
 

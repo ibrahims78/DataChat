@@ -1655,11 +1655,14 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
       }
     }
 
-    if (provider === 'openai') {
-      const endpoint = 'https://api.openai.com/v1/chat/completions'
-      const apiKey = aiConfig.api_key || process.env.OPENAI_API_KEY || ''
+    if (provider === 'openai' || provider === 'agentrouter') {
+      const defaultBase = provider === 'agentrouter' ? 'https://agentrouter.org/v1' : 'https://api.openai.com/v1'
+      const baseUrl = (aiConfig.proxy_url && aiConfig.proxy_url.trim()) ? aiConfig.proxy_url.trim() : defaultBase
+      const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`
+      const apiKey = aiConfig.api_key || (provider === 'openai' ? process.env.OPENAI_API_KEY : '') || ''
+      const providerLabel = provider === 'agentrouter' ? 'AgentRouter' : 'OpenAI'
       if (!apiKey) {
-        fullResponse = `عذراً، لم يتم ضبط مفتاح OpenAI API. يرجى إضافته في الإعدادات.`
+        fullResponse = `عذراً، لم يتم ضبط مفتاح ${providerLabel} API. يرجى إضافته في الإعدادات.`
         res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
       } else {
         const chatMessages = [
@@ -1670,7 +1673,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         try {
           await streamOpenAICompatible(endpoint, apiKey, selectedModel, chatMessages, parseFloat(aiConfig.temperature) || 0.7)
         } catch (aiErr) {
-          fullResponse = `عذراً، حدث خطأ في الاتصال بـ OpenAI: ${aiErr.message}`
+          fullResponse = `عذراً، حدث خطأ في الاتصال بـ ${providerLabel}: ${aiErr.message}`
           res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
         }
       }
