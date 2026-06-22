@@ -163,6 +163,9 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
     setPhase('uploading')
     uploadStarted()
 
+    // Track results outside React state to avoid batching issues
+    const results: Record<string, 'done' | 'error'> = {}
+
     async function worker() {
       while (true) {
         const i = idxRef.current++
@@ -172,14 +175,20 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
         setItems(prev => prev.map(x => x.id === item.id ? { ...x, status: 'uploading', progress: 0 } : x))
 
         try {
+          console.log('[upload] starting:', item.file.name, 'projectId:', projectId)
           const data = await uploadChunked(item.file, projectId, pct => {
             setItems(prev => prev.map(x => x.id === item.id ? { ...x, progress: pct } : x))
           })
+          console.log('[upload] success:', item.file.name, data)
+          results[item.id] = 'done'
           setItems(prev => prev.map(x => x.id === item.id ? { ...x, status: 'done', progress: 100 } : x))
           await onUploaded(data.file, true)
         } catch (err: any) {
-          const msg = err?.response?.data?.error || 'فشل الرفع'
+          console.error('[upload] error:', item.file.name, err)
+          const msg = err?.response?.data?.error || err?.message || 'فشل الرفع'
+          results[item.id] = 'error'
           setItems(prev => prev.map(x => x.id === item.id ? { ...x, status: 'error', error: msg } : x))
+          toast.error(`فشل رفع ${item.file.name}: ${msg}`)
         }
       }
     }
@@ -187,20 +196,17 @@ export default function FileUploadModal({ projectId, onClose, onUploaded }: Prop
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, snapshot.length) }, worker))
     uploadFinished()
 
-    let successCount = 0
-    let failCount = 0
-    setItems(prev => {
-      successCount = prev.filter(x => x.status === 'done').length
-      failCount = prev.filter(x => x.status === 'error').length
-      if (failCount === 0) toast.success(`✅ تم رفع ${successCount} ${successCount === 1 ? 'ملف' : 'ملفات'} بنجاح`)
-      else if (successCount > 0) toast(`⚠️ ${successCount} بنجاح · ${failCount} فشل`, { duration: 5000 })
-      else toast.error('فشل رفع جميع الملفات')
-      return prev
-    })
+    // Use plain object results (not React state) to avoid batching race condition
+    const successCount = Object.values(results).filter(v => v === 'done').length
+    const failCount = Object.values(results).filter(v => v === 'error').length
+
+    if (failCount === 0) toast.success(`✅ تم رفع ${successCount} ${successCount === 1 ? 'ملف' : 'ملفات'} بنجاح`)
+    else if (successCount > 0) toast(`⚠️ ${successCount} بنجاح · ${failCount} فشل`, { duration: 5000 })
+
     setPhase('done')
 
-    // Auto-close after 1.5 s when everything succeeded
-    if (failCount === 0) {
+    // Auto-close after 1.5 s only when everything succeeded
+    if (failCount === 0 && successCount > 0) {
       setTimeout(onClose, 1500)
     }
   }
