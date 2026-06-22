@@ -97,6 +97,299 @@ function padId(id) {
   return String(id).padStart(4, '0')
 }
 
+// ─── Google Drive helpers for AI function calling ─────────────────────────────
+
+async function getAuthedDriveClientForUser(userId) {
+  const settings = await db.query('SELECT client_id, client_secret FROM google_drive_settings WHERE id=1')
+  const s = settings.rows[0]
+  if (!s?.client_id || !s?.client_secret) throw new Error('Google Drive غير مُهيأ في الإعدادات')
+  const tokenRow = await db.query('SELECT * FROM google_oauth WHERE user_id=$1', [userId])
+  if (!tokenRow.rows.length) throw new Error('لم يتم ربط Google Drive. يرجى الربط أولاً من تبويب Drive.')
+  const tok = tokenRow.rows[0]
+  const oauth2Client = new google.auth.OAuth2(s.client_id, s.client_secret)
+  oauth2Client.setCredentials({
+    access_token: tok.access_token,
+    refresh_token: tok.refresh_token,
+    expiry_date: tok.token_expiry ? new Date(tok.token_expiry).getTime() : null,
+  })
+  oauth2Client.on('tokens', async (tokens) => {
+    if (tokens.access_token) {
+      await db.query(
+        'UPDATE google_oauth SET access_token=$1, token_expiry=$2, updated_at=NOW() WHERE user_id=$3',
+        [tokens.access_token, tokens.expiry_date ? new Date(tokens.expiry_date) : null, userId]
+      )
+    }
+  })
+  return oauth2Client
+}
+
+function getDriveTools() {
+  return [{
+    functionDeclarations: [
+      {
+        name: 'listDriveFiles',
+        description: 'يسرد الملفات والمجلدات في Google Drive للمستخدم. استخدمها عند طلب عرض أو البحث في ملفات Drive.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            folderId: { type: 'STRING', description: 'معرّف المجلد للاستعراض. "root" للمجلد الرئيسي. اتركه فارغاً للمجلد الرئيسي.' },
+            searchQuery: { type: 'STRING', description: 'نص البحث لتصفية الملفات (اختياري)' }
+          }
+        }
+      },
+      {
+        name: 'createDriveFolder',
+        description: 'ينشئ مجلداً جديداً في Google Drive.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            name: { type: 'STRING', description: 'اسم المجلد الجديد' },
+            parentId: { type: 'STRING', description: 'معرّف المجلد الأب (اختياري، يُستخدم root إذا لم يُحدَّد)' }
+          },
+          required: ['name']
+        }
+      },
+      {
+        name: 'renameDriveFile',
+        description: 'يعيد تسمية ملف أو مجلد في Google Drive.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            fileId: { type: 'STRING', description: 'معرّف الملف أو المجلد' },
+            newName: { type: 'STRING', description: 'الاسم الجديد' }
+          },
+          required: ['fileId', 'newName']
+        }
+      },
+      {
+        name: 'deleteDriveFile',
+        description: 'ينقل ملفاً أو مجلداً إلى سلة مهملات Google Drive (قابل للاسترجاع). استخدمها فقط بموافقة صريحة من المستخدم.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            fileId: { type: 'STRING', description: 'معرّف الملف أو المجلد' },
+            fileName: { type: 'STRING', description: 'اسم الملف (للعرض في الرسالة)' }
+          },
+          required: ['fileId', 'fileName']
+        }
+      },
+      {
+        name: 'copyDriveFile',
+        description: 'ينسخ ملفاً في Google Drive.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            fileId: { type: 'STRING', description: 'معرّف الملف المراد نسخه' },
+            name: { type: 'STRING', description: 'اسم النسخة الجديدة (اختياري)' },
+            folderId: { type: 'STRING', description: 'معرّف مجلد الوجهة (اختياري)' }
+          },
+          required: ['fileId']
+        }
+      },
+      {
+        name: 'importDriveFileToProject',
+        description: 'يستورد ملفاً من Google Drive إلى المشروع الحالي لتحليله بالذكاء الاصطناعي. استخدمها عندما يريد المستخدم تحليل ملف Drive.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            fileId: { type: 'STRING', description: 'معرّف الملف في Drive' },
+            fileName: { type: 'STRING', description: 'اسم الملف' },
+            mimeType: { type: 'STRING', description: 'نوع MIME للملف (اختياري)' }
+          },
+          required: ['fileId', 'fileName']
+        }
+      },
+      {
+        name: 'uploadGeneratedFileToDrive',
+        description: 'يرفع ملفاً أنشأه الذكاء الاصطناعي (Excel/PDF/Word/إلخ) إلى Google Drive. استخدمها بعد إنشاء ملف عند طلب رفعه لـ Drive. يجب توفير معرّف الملف المُولَّد (genFileId).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            genFileId: { type: 'STRING', description: 'معرّف الملف المُولَّد (رقم من جدول النتائج المُولَّدة)' },
+            folderId: { type: 'STRING', description: 'معرّف مجلد الوجهة في Drive (اختياري، root إذا لم يُحدَّد)' }
+          },
+          required: ['genFileId']
+        }
+      },
+      {
+        name: 'moveDriveFile',
+        description: 'ينقل ملفاً إلى مجلد آخر في Google Drive.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            fileId: { type: 'STRING', description: 'معرّف الملف' },
+            targetFolderId: { type: 'STRING', description: 'معرّف المجلد الهدف' },
+            targetFolderName: { type: 'STRING', description: 'اسم المجلد الهدف (للعرض)' }
+          },
+          required: ['fileId', 'targetFolderId']
+        }
+      }
+    ]
+  }]
+}
+
+async function executeDriveFunction(name, args, userId, projectId) {
+  const auth = await getAuthedDriveClientForUser(userId)
+  const drive = google.drive({ version: 'v3', auth })
+
+  switch (name) {
+    case 'listDriveFiles': {
+      const folderId = args.folderId || 'root'
+      let q
+      if (args.searchQuery && args.searchQuery.trim()) {
+        q = `name contains '${args.searchQuery.replace(/'/g, "\\'")}' and trashed=false`
+      } else {
+        q = `'${folderId}' in parents and trashed=false`
+      }
+      const resp = await drive.files.list({
+        q,
+        pageSize: 50,
+        orderBy: 'folder,name',
+        fields: 'files(id,name,mimeType,size,modifiedTime)'
+      })
+      const files = resp.data.files || []
+      return {
+        count: files.length,
+        files: files.map(f => ({
+          id: f.id,
+          name: f.name,
+          type: f.mimeType === 'application/vnd.google-apps.folder' ? 'مجلد' : 'ملف',
+          size: f.size ? `${Math.round(parseInt(f.size) / 1024)} KB` : null,
+          modified: f.modifiedTime ? new Date(f.modifiedTime).toLocaleDateString('ar-SA') : null
+        }))
+      }
+    }
+
+    case 'createDriveFolder': {
+      const folder = await drive.files.create({
+        requestBody: {
+          name: args.name.trim(),
+          mimeType: 'application/vnd.google-apps.folder',
+          parents: [args.parentId || 'root']
+        },
+        fields: 'id,name'
+      })
+      return { success: true, id: folder.data.id, name: folder.data.name }
+    }
+
+    case 'renameDriveFile': {
+      await drive.files.update({
+        fileId: args.fileId,
+        requestBody: { name: args.newName.trim() }
+      })
+      return { success: true, newName: args.newName }
+    }
+
+    case 'deleteDriveFile': {
+      await drive.files.update({
+        fileId: args.fileId,
+        requestBody: { trashed: true }
+      })
+      return { success: true, message: `تم نقل "${args.fileName}" إلى سلة المهملات (يمكن استرجاعه)` }
+    }
+
+    case 'copyDriveFile': {
+      const reqBody = {}
+      if (args.name) reqBody.name = args.name
+      if (args.folderId) reqBody.parents = [args.folderId]
+      const copied = await drive.files.copy({
+        fileId: args.fileId,
+        requestBody: reqBody,
+        fields: 'id,name'
+      })
+      return { success: true, id: copied.data.id, name: copied.data.name }
+    }
+
+    case 'importDriveFileToProject': {
+      if (!projectId) return { error: 'لم يتم تحديد المشروع' }
+      const meta = await drive.files.get({ fileId: args.fileId, fields: 'id,name,mimeType,size' })
+      const fileMeta = meta.data
+      const nativeExport = {
+        'application/vnd.google-apps.spreadsheet': { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ext: 'xlsx' },
+        'application/vnd.google-apps.document': { mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: 'docx' },
+        'application/vnd.google-apps.presentation': { mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', ext: 'pptx' }
+      }
+      let buffer
+      let fileName = args.fileName || fileMeta.name
+      if (nativeExport[fileMeta.mimeType]) {
+        const exp = nativeExport[fileMeta.mimeType]
+        const resp = await drive.files.export({ fileId: args.fileId, mimeType: exp.mime }, { responseType: 'arraybuffer' })
+        buffer = Buffer.from(resp.data)
+        if (!fileName.endsWith('.' + exp.ext)) fileName += '.' + exp.ext
+      } else {
+        const resp = await drive.files.get({ fileId: args.fileId, alt: 'media' }, { responseType: 'arraybuffer' })
+        buffer = Buffer.from(resp.data)
+      }
+      const countCheck = await db.query('SELECT COUNT(*) FROM files WHERE project_id=$1', [projectId])
+      if (parseInt(countCheck.rows[0].count) >= 10) return { error: 'تم الوصول للحد الأقصى من الملفات في المشروع (10 ملفات)' }
+      const projRow = await db.query('SELECT user_id FROM projects WHERE id=$1', [projectId])
+      if (!projRow.rows.length) return { error: 'المشروع غير موجود' }
+      const userPadId = padId(projRow.rows[0].user_id)
+      const projPadId = padId(projectId)
+      const userDir = path.join(UPLOADS_DIR, 'users', `user_${userPadId}`, 'projects', `project_${projPadId}`)
+      fs.mkdirSync(userDir, { recursive: true })
+      const ext = fileName.split('.').pop()?.toLowerCase() || 'bin'
+      const { v4: uuidv4 } = require('uuid')
+      const storedName = `${uuidv4()}.${ext}`
+      fs.writeFileSync(path.join(userDir, storedName), buffer)
+      const fileTypeMap = { xlsx: 'excel', xls: 'excel', csv: 'csv', pdf: 'pdf', docx: 'word', doc: 'word', txt: 'text', json: 'json', md: 'markdown', html: 'html', htm: 'html', pptx: 'presentation' }
+      const fileType = fileTypeMap[ext] || 'unknown'
+      const inserted = await db.query(
+        'INSERT INTO files (project_id, original_name, stored_name, file_type, file_size, mime_type) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+        [projectId, fileName, storedName, fileType, buffer.length, fileMeta.mimeType || 'application/octet-stream']
+      )
+      return { success: true, projectFileId: inserted.rows[0].id, name: fileName, sizeBytes: buffer.length }
+    }
+
+    case 'uploadGeneratedFileToDrive': {
+      const genFile = await db.query(
+        `SELECT gf.*, p.user_id FROM generated_files gf JOIN projects p ON p.id=gf.project_id WHERE gf.id=$1`,
+        [args.genFileId]
+      )
+      if (!genFile.rows.length) return { error: 'الملف المُولَّد غير موجود. يرجى التأكد من رقم معرّف الملف.' }
+      const f = genFile.rows[0]
+      const userPadId = padId(f.user_id)
+      const projPadId = padId(f.project_id)
+      let filePath = path.join(UPLOADS_DIR, 'users', `user_${userPadId}`, 'projects', `project_${projPadId}`, f.stored_name)
+      if (!fs.existsSync(filePath)) filePath = path.join(UPLOADS_DIR, 'generated', f.stored_name)
+      if (!fs.existsSync(filePath)) return { error: 'ملف غير موجود على القرص' }
+      const mimeMap = {
+        excel: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        pdf: 'application/pdf',
+        word: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        html: 'text/html',
+        markdown: 'text/markdown',
+        text: 'text/plain',
+        json: 'application/json',
+      }
+      const mime = mimeMap[f.file_type] || 'application/octet-stream'
+      const fileMetadata = { name: f.display_name || f.original_name || f.stored_name }
+      if (args.folderId && args.folderId !== 'root') fileMetadata.parents = [args.folderId]
+      const response = await drive.files.create({
+        requestBody: fileMetadata,
+        media: { mimeType: mime, body: fs.createReadStream(filePath) },
+        fields: 'id,name,webViewLink'
+      })
+      return { success: true, driveId: response.data.id, name: response.data.name, link: response.data.webViewLink }
+    }
+
+    case 'moveDriveFile': {
+      const getMeta = await drive.files.get({ fileId: args.fileId, fields: 'parents' })
+      const prevParents = (getMeta.data.parents || []).join(',')
+      await drive.files.update({
+        fileId: args.fileId,
+        addParents: args.targetFolderId,
+        removeParents: prevParents || undefined,
+        requestBody: {}
+      })
+      return { success: true, message: `تم نقل الملف إلى "${args.targetFolderName || args.targetFolderId}"` }
+    }
+
+    default:
+      return { error: `دالة غير معروفة: ${name}` }
+  }
+}
+
 function resolveUploadPath(file) {
   if (file._filePath) return file._filePath
   if (file.user_id && file.project_id) {
@@ -1278,19 +1571,40 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         }
       }
     } else {
-      const model = genAI.getGenerativeModel({
+      // ── Gemini path ───────────────────────────────────────────────────────────
+      // Check if user has Google Drive connected — enable function calling if so
+      let driveTools = []
+      let driveSystemAddition = ''
+      try {
+        const driveCheck = await db.query('SELECT id FROM google_oauth WHERE user_id=$1', [req.user.id])
+        if (driveCheck.rows.length > 0) {
+          driveTools = getDriveTools()
+          driveSystemAddition = `\n\n---\n## صلاحيات Google Drive (متاحة الآن)\nأنت متصل بـ Google Drive للمستخدم. يمكنك تنفيذ العمليات التالية مباشرةً:\n- **عرض/بحث الملفات**: listDriveFiles(folderId?, searchQuery?)\n- **إنشاء مجلد**: createDriveFolder(name, parentId?)\n- **إعادة تسمية**: renameDriveFile(fileId, newName)\n- **حذف (سلة المهملات)**: deleteDriveFile(fileId, fileName) — تأكد من موافقة المستخدم\n- **نسخ**: copyDriveFile(fileId, name?, folderId?)\n- **استيراد من Drive للمشروع**: importDriveFileToProject(fileId, fileName)\n- **رفع ملف مُولَّد إلى Drive**: uploadGeneratedFileToDrive(genFileId, folderId?) — استخدم معرّف الملف المُولَّد بعد إنشائه\n- **نقل**: moveDriveFile(fileId, targetFolderId, targetFolderName?)\nعند طلب المستخدم أي عملية Drive، استخدم الدوال مباشرةً دون تردد. لا تقل "لا أستطيع".`
+        }
+      } catch {}
+
+      const effectiveSystemText = systemText + driveSystemAddition
+
+      const modelConfig = {
         model: selectedModel,
         generationConfig: {
           temperature: parseFloat(aiConfig.temperature) || 0.7,
           maxOutputTokens: 65536,
         },
-        systemInstruction: { role: 'user', parts: [{ text: systemText }] }
-      })
+        systemInstruction: { role: 'user', parts: [{ text: effectiveSystemText }] }
+      }
+      if (driveTools.length) {
+        modelConfig.tools = driveTools
+        modelConfig.toolConfig = { functionCallingConfig: { mode: 'AUTO' } }
+      }
+
+      const model = genAI.getGenerativeModel(modelConfig)
       const chatHistory = msgs.map(m => ({
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }]
       }))
       const chat = model.startChat({ history: chatHistory })
+
       try {
         // Build message parts — add images as inline_data for multimodal
         const imageParts = Array.isArray(folderFileContents)
@@ -1301,11 +1615,47 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         const messageParts = imageParts.length > 0
           ? [{ text: message }, ...imageParts]
           : message
-        const result = await chat.sendMessageStream(messageParts)
-        for await (const chunk of result.stream) {
-          const text = chunk.text()
-          fullResponse += text
-          res.write(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`)
+
+        if (driveTools.length) {
+          // ── Function-calling path (Drive connected) ────────────────────────
+          let response = await chat.sendMessage(messageParts)
+          let maxIter = 5
+          let iter = 0
+
+          while (iter < maxIter) {
+            const calls = response.response.functionCalls?.() || []
+            if (!calls || calls.length === 0) break
+            iter++
+
+            const functionResponseParts = []
+            for (const fc of calls) {
+              // Notify client that a Drive action is running
+              res.write(`data: ${JSON.stringify({ type: 'drive_action_start', action: fc.name, args: fc.args })}\n\n`)
+              try {
+                const result = await executeDriveFunction(fc.name, fc.args, req.user.id, req.params.projectId)
+                res.write(`data: ${JSON.stringify({ type: 'drive_action_done', action: fc.name, result })}\n\n`)
+                functionResponseParts.push({ functionResponse: { name: fc.name, response: result } })
+              } catch (e) {
+                const errResult = { error: e.message }
+                res.write(`data: ${JSON.stringify({ type: 'drive_action_error', action: fc.name, error: e.message })}\n\n`)
+                functionResponseParts.push({ functionResponse: { name: fc.name, response: errResult } })
+              }
+            }
+
+            response = await chat.sendMessage(functionResponseParts)
+          }
+
+          // Send the final text response
+          fullResponse = response.response.text?.() || ''
+          res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
+        } else {
+          // ── Streaming path (no Drive tools) ──────────────────────────────
+          const result = await chat.sendMessageStream(messageParts)
+          for await (const chunk of result.stream) {
+            const text = chunk.text()
+            fullResponse += text
+            res.write(`data: ${JSON.stringify({ type: 'text', content: text })}\n\n`)
+          }
         }
       } catch (aiErr) {
         fullResponse = `عذراً، حدث خطأ في الاتصال بالذكاء الاصطناعي: ${aiErr.message}`

@@ -143,6 +143,15 @@ export default function DrivePanelTab({ projectId, onImport }: Props) {
 
   useEffect(() => { fetchStatus() }, [])
 
+  // Listen for AI-triggered Drive refresh events (from function calling)
+  useEffect(() => {
+    const handler = () => {
+      if (status?.connected) loadFiles(currentFolder)
+    }
+    window.addEventListener('drive:refresh', handler)
+    return () => window.removeEventListener('drive:refresh', handler)
+  }, [status?.connected, currentFolder])
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuFile(null)

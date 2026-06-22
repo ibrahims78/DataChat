@@ -259,6 +259,29 @@ export default function ProjectPage() {
               } else if (data.type === 'content_preview') {
                 const tempId = tempAiIdRef.current
                 setContentPreviews(prev => ({ ...prev, [tempId]: { html: data.html, previewType: data.previewType, filename: data.filename } }))
+              } else if (data.type === 'drive_action_start') {
+                const actionNames: Record<string, string> = {
+                  listDriveFiles: 'جارٍ استعراض ملفات Drive…',
+                  createDriveFolder: 'جارٍ إنشاء المجلد…',
+                  renameDriveFile: 'جارٍ إعادة التسمية…',
+                  deleteDriveFile: 'جارٍ الحذف…',
+                  copyDriveFile: 'جارٍ النسخ…',
+                  importDriveFileToProject: 'جارٍ استيراد الملف…',
+                  uploadGeneratedFileToDrive: 'جارٍ الرفع إلى Drive…',
+                  moveDriveFile: 'جارٍ النقل…',
+                }
+                setTypingStep(actionNames[data.action] || 'جارٍ تنفيذ عملية Drive…')
+              } else if (data.type === 'drive_action_done') {
+                setTypingStep('جاري صياغة الإجابة…')
+                // Trigger Drive panel refresh via custom event
+                window.dispatchEvent(new CustomEvent('drive:refresh'))
+                // If file was imported, refresh project files list
+                if (data.action === 'importDriveFileToProject' && data.result?.success) {
+                  fetchProject()
+                }
+              } else if (data.type === 'drive_action_error') {
+                toast.error(`خطأ Drive: ${data.error}`, { duration: 4000 })
+                setTypingStep('جاري صياغة الإجابة…')
               } else if (data.type === 'folder_action') {
                 if (data.action === 'create_dir' && data.path) {
                   const fname = primaryFolderRef.current?.name || ''
