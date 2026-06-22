@@ -86,7 +86,7 @@ function repairJSON(raw) {
 }
 
 function getGenAI(apiKey) {
-  return new GoogleGenerativeAI(apiKey || process.env.GEMINI_API_KEY || '')
+  return new GoogleGenerativeAI(apiKey || '')
 }
 
 const UPLOADS_DIR = path.join(__dirname, '../../../uploads')
@@ -1658,7 +1658,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
     if (provider === 'openai') {
       const baseUrl = (aiConfig.proxy_url && aiConfig.proxy_url.trim()) ? aiConfig.proxy_url.trim() : 'https://api.openai.com/v1'
       const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`
-      const apiKey = aiConfig.api_key || process.env.OPENAI_API_KEY || ''
+      const apiKey = aiConfig.api_key || ''
       if (!apiKey) {
         fullResponse = `عذراً، لم يتم ضبط مفتاح OpenAI API. يرجى إضافته في الإعدادات.`
         res.write(`data: ${JSON.stringify({ type: 'text', content: fullResponse })}\n\n`)
@@ -1810,7 +1810,7 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
 
         let fallbackText = ''
         if (provider === 'openai') {
-          const apiKey = aiConfig.api_key || process.env.OPENAI_API_KEY || ''
+          const apiKey = aiConfig.api_key || ''
           if (apiKey) {
             const oaFbRes = await fetch('https://api.openai.com/v1/chat/completions', {
               method: 'POST',

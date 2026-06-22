@@ -55,8 +55,8 @@ async function deleteUserFiles(userId) {
 async function getMailer() {
   const result = await db.query('SELECT smtp_user, smtp_pass FROM email_settings WHERE id=1').catch(() => ({ rows: [] }))
   const row = result.rows[0] || {}
-  const user = row.smtp_user || process.env.SMTP_USER
-  const pass = row.smtp_pass || process.env.SMTP_PASS
+  const user = row.smtp_user
+  const pass = row.smtp_pass
   if (!user || !pass) return null
   return nodemailer.createTransport({ service: 'gmail', auth: { user, pass } })
 }
@@ -123,7 +123,7 @@ router.post('/users/invite', async (req, res) => {
     const mailer = await getMailer()
     if (mailer) {
       await mailer.sendMail({
-        from: `"DataChat" <${process.env.SMTP_USER}>`,
+        from: `"DataChat" <${user}>`,
         to: email,
         subject: 'دعوة للانضمام إلى DataChat',
         html: `
@@ -253,7 +253,7 @@ router.post('/settings/test-api', async (req, res) => {
     // if masked value sent, use the stored key
     if (!api_key || api_key.includes('•')) {
       const result = await db.query('SELECT api_key, proxy_url FROM ai_settings WHERE id=1')
-      keyToTest = result.rows[0]?.api_key || process.env.GEMINI_API_KEY
+      keyToTest = result.rows[0]?.api_key
     }
     if (!keyToTest) return res.status(400).json({ error: 'لم يتم إدخال مفتاح API' })
 
@@ -355,9 +355,9 @@ router.get('/email-settings', async (req, res) => {
     const result = await db.query('SELECT smtp_user, smtp_pass FROM email_settings WHERE id=1')
     const row = result.rows[0] || {}
     res.json({
-      smtp_user: row.smtp_user || process.env.SMTP_USER || '',
-      smtp_pass: row.smtp_pass ? '••••••••••••••••' : (process.env.SMTP_PASS ? '••••••••••••••••' : ''),
-      has_smtp: !!(row.smtp_user || process.env.SMTP_USER)
+      smtp_user: row.smtp_user || '',
+      smtp_pass: row.smtp_pass ? '••••••••••••••••' : '',
+      has_smtp: !!(row.smtp_user && row.smtp_pass)
     })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -387,8 +387,8 @@ router.post('/email-settings/test', async (req, res) => {
     let pass = smtp_pass
     if (!pass || pass === MASK) {
       const row = await db.query('SELECT smtp_user, smtp_pass FROM email_settings WHERE id=1')
-      user = row.rows[0]?.smtp_user || process.env.SMTP_USER
-      pass = row.rows[0]?.smtp_pass || process.env.SMTP_PASS
+      user = row.rows[0]?.smtp_user
+      pass = row.rows[0]?.smtp_pass
     }
     if (!user || !pass) return res.status(400).json({ error: 'يرجى إدخال بيانات Gmail أولاً' })
     const transport = nodemailer.createTransport({ service: 'gmail', auth: { user, pass } })
