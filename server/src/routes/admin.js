@@ -257,13 +257,10 @@ router.post('/settings/test-api', async (req, res) => {
     }
     if (!keyToTest) return res.status(400).json({ error: 'لم يتم إدخال مفتاح API' })
 
-    if (provider === 'openai' || provider === 'agentrouter') {
-      const defaultEndpoint = provider === 'agentrouter'
-        ? 'https://agentrouter.org/v1'
-        : 'https://api.openai.com/v1'
-      const baseUrl = (proxy_url && proxy_url.trim()) || defaultEndpoint
+    if (provider === 'openai') {
+      const baseUrl = (proxy_url && proxy_url.trim()) || 'https://api.openai.com/v1'
       const endpoint = `${baseUrl.replace(/\/$/, '')}/chat/completions`
-      const testModel = reqModel || (provider === 'openai' ? 'gpt-4o-mini' : 'claude-3-5-haiku')
+      const testModel = reqModel || 'gpt-4o-mini'
       const testRes = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -276,16 +273,15 @@ router.post('/settings/test-api', async (req, res) => {
         signal: AbortSignal.timeout(15000)
       })
       if (testRes.ok) {
-        const providerLabel = provider === 'agentrouter' ? 'AgentRouter' : 'OpenAI'
-        return res.json({ success: true, message: `مفتاح ${providerLabel} API صحيح ويعمل بشكل جيد ✓` })
+        return res.json({ success: true, message: 'مفتاح OpenAI API صحيح ويعمل بشكل جيد ✓' })
       }
       const errText = await testRes.text()
       let errMsg = ''
       try { errMsg = JSON.parse(errText)?.error?.message || JSON.parse(errText)?.message || '' } catch {}
-      if (testRes.status === 401) return res.status(400).json({ error: 'مفتاح API غير صحيح أو منتهي الصلاحية' + (errMsg ? `: ${errMsg}` : '') })
+      if (testRes.status === 401) return res.status(400).json({ error: 'مفتاح OpenAI غير صحيح أو منتهي الصلاحية' + (errMsg ? `: ${errMsg}` : '') })
       if (testRes.status === 403) return res.status(400).json({ error: 'الوصول مرفوض — تحقق من صلاحيات المفتاح' + (errMsg ? `: ${errMsg}` : '') })
       if (testRes.status === 404) return res.status(400).json({ error: `النموذج "${testModel}" غير موجود — تحقق من اسمه` })
-      if (testRes.status === 429) return res.status(400).json({ error: 'تم استنفاد حصة API — حاول لاحقاً' })
+      if (testRes.status === 429) return res.status(400).json({ error: 'تم استنفاد حصة OpenAI API — حاول لاحقاً' })
       return res.status(400).json({ error: `فشل التحقق (${testRes.status}): ${(errMsg || errText).substring(0, 200)}` })
     }
 

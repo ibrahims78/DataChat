@@ -432,13 +432,12 @@ export default function SettingsPage() {
               {[
                 { id: 'gemini', label: 'Google Gemini', badge: 'موصى به', icon: '🤖' },
                 { id: 'openai', label: 'OpenAI', badge: 'GPT / o1', icon: '🟢' },
-                { id: 'agentrouter', label: 'AgentRouter', badge: 'نماذج متعددة', icon: '🔀' },
               ].map(p => (
                 <button
                   key={p.id}
                   type="button"
                   onClick={() => {
-                    const defaultModel = p.id === 'gemini' ? 'gemini-2.5-flash' : p.id === 'openai' ? 'gpt-4o-mini' : aiSettings.model
+                    const defaultModel = p.id === 'gemini' ? 'gemini-2.5-flash' : 'gpt-4o-mini'
                     setAiSettings((s: any) => ({ ...s, provider: p.id, model: defaultModel }))
                     setApiTestResult(null)
                   }}
@@ -466,7 +465,7 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2 mb-1">
               <KeyRound size={16} className="text-primary-600" />
               <label className="text-sm font-semibold text-[var(--text)]">
-                {aiSettings.provider === 'openai' ? 'مفتاح OpenAI API' : aiSettings.provider === 'agentrouter' ? 'مفتاح AgentRouter API' : 'مفتاح Gemini API'}
+                {aiSettings.provider === 'openai' ? 'مفتاح OpenAI API' : 'مفتاح Gemini API'}
               </label>
               {aiSettings.has_api_key && !apiKeyChanged && (
                 <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">محفوظ</span>
@@ -476,7 +475,7 @@ export default function SettingsPage() {
               <input
                 className="input-field pe-20 font-mono text-sm"
                 type={showApiKey ? 'text' : 'password'}
-                placeholder={aiSettings.provider === 'openai' ? 'sk-...' : aiSettings.provider === 'agentrouter' ? 'ar-...' : 'AIzaSy...'}
+                placeholder={aiSettings.provider === 'openai' ? 'sk-...' : 'AIzaSy...'}
                 value={aiSettings.api_key}
                 onChange={e => {
                   setAiSettings((p: any) => ({ ...p, api_key: e.target.value }))
@@ -514,10 +513,6 @@ export default function SettingsPage() {
                 <>احصل على مفتاحك من{' '}
                   <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">platform.openai.com/api-keys</a>.
                   المفتاح يبدأ بـ sk- ويُحفظ بشكل آمن على الخادم.</>
-              ) : aiSettings.provider === 'agentrouter' ? (
-                <>احصل على مفتاحك من{' '}
-                  <a href="https://agentrouter.org" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">agentrouter.org</a>.
-                  يتيح لك الوصول لعشرات النماذج (Claude، GPT، Mistral...) بمفتاح واحد.</>
               ) : (
                 <>احصل على مفتاحك من{' '}
                   <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" className="text-primary-600 underline">Google AI Studio</a>.
@@ -529,7 +524,7 @@ export default function SettingsPage() {
           {/* Model selector */}
           <div>
             <label className="block text-sm font-semibold text-[var(--text)] mb-2">
-              {aiSettings.provider === 'openai' ? 'نموذج OpenAI' : aiSettings.provider === 'agentrouter' ? 'اسم النموذج (AgentRouter)' : 'نموذج Gemini'}
+              {aiSettings.provider === 'openai' ? 'نموذج OpenAI' : 'نموذج Gemini'}
             </label>
             {aiSettings.provider === 'openai' ? (
               <select className="input-field" value={aiSettings.model} onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}>
@@ -539,14 +534,6 @@ export default function SettingsPage() {
                 <option value="gpt-3.5-turbo">GPT-3.5 Turbo (اقتصادي)</option>
                 <option value="o1-mini">o1 Mini (تفكير)</option>
               </select>
-            ) : aiSettings.provider === 'agentrouter' ? (
-              <input
-                className="input-field font-mono text-sm"
-                placeholder="مثال: claude-3-5-sonnet، gpt-4o، mistral-large..."
-                value={aiSettings.model}
-                onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}
-                dir="ltr"
-              />
             ) : (
               <select className="input-field" value={aiSettings.model} onChange={e => setAiSettings((p: any) => ({ ...p, model: e.target.value }))}>
                 <option value="gemini-2.5-flash">Gemini 2.5 Flash (موصى به)</option>
@@ -557,24 +544,20 @@ export default function SettingsPage() {
             )}
           </div>
 
-          {/* Proxy URL — shown for openai and agentrouter */}
-          {(aiSettings.provider === 'openai' || aiSettings.provider === 'agentrouter') && (
+          {/* Proxy URL — shown for openai only */}
+          {aiSettings.provider === 'openai' && (
             <div>
-              <label className="block text-sm font-semibold text-[var(--text)] mb-2">
-                {aiSettings.provider === 'agentrouter' ? 'رابط خادم AgentRouter (Proxy)' : 'رابط Proxy مخصص (اختياري)'}
-              </label>
+              <label className="block text-sm font-semibold text-[var(--text)] mb-2">رابط Proxy مخصص (اختياري)</label>
               <input
                 className="input-field font-mono text-sm"
                 type="url"
-                placeholder={aiSettings.provider === 'agentrouter' ? 'https://agentrouter.org/v1' : 'https://api.openai.com/v1 (افتراضي)'}
+                placeholder="https://api.openai.com/v1 (افتراضي)"
                 value={aiSettings.proxy_url || ''}
                 onChange={e => setAiSettings((p: any) => ({ ...p, proxy_url: e.target.value }))}
                 dir="ltr"
               />
               <p className="text-xs text-[var(--muted)] mt-1">
-                {aiSettings.provider === 'agentrouter'
-                  ? 'اتركه فارغاً لاستخدام https://agentrouter.org/v1 الافتراضي.'
-                  : 'اتركه فارغاً لاستخدام OpenAI المباشر. أضف عنوان Proxy إذا كنت خلف جدار ناري أو تستخدم خادماً وسيطاً.'}
+                اتركه فارغاً لاستخدام OpenAI المباشر. أضف عنوان Proxy إذا كنت خلف جدار ناري أو تستخدم خادماً وسيطاً.
               </p>
             </div>
           )}
