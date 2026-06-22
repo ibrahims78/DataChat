@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Users, BarChart3, Settings, User, Star, Plus, Trash2, Eye, EyeOff, Mail, CheckCircle, XCircle, Loader2, KeyRound, Pencil, ShieldCheck, UserCheck, UserX, HardDrive, Send, Link, Unlink, Copy, RefreshCw } from 'lucide-react'
+import { Users, BarChart3, Settings, User, Star, Plus, Trash2, Eye, EyeOff, Mail, CheckCircle, XCircle, Loader2, KeyRound, Pencil, ShieldCheck, UserCheck, UserX, HardDrive, Send, Link, Unlink, Copy, RefreshCw, Github, GitBranch, GitCommit, BookOpen, Code2 } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useT } from '../i18n/translations'
 import { useAuth } from '../contexts/AuthContext'
@@ -7,7 +7,7 @@ import api from '../lib/api'
 import toast from 'react-hot-toast'
 import ConfirmModal from '../components/ui/ConfirmModal'
 
-type Tab = 'stats' | 'users' | 'ai' | 'email' | 'profile' | 'ratings' | 'google' | 'telegram'
+type Tab = 'stats' | 'users' | 'ai' | 'email' | 'profile' | 'ratings' | 'google' | 'telegram' | 'github'
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('stats')
@@ -46,6 +46,13 @@ export default function SettingsPage() {
   const [tgProjectId, setTgProjectId] = useState<number | ''>('')
   const [savingTg, setSavingTg] = useState(false)
   const [disconnectingTg, setDisconnectingTg] = useState(false)
+  // GitHub state
+  const [ghSettings, setGhSettings] = useState<any>({ connected: false })
+  const [ghToken, setGhToken] = useState('')
+  const [showGhToken, setShowGhToken] = useState(false)
+  const [ghRepos, setGhRepos] = useState<any[]>([])
+  const [savingGh, setSavingGh] = useState(false)
+  const [disconnectingGh, setDisconnectingGh] = useState(false)
   const { lang, theme, toggleTheme, toggleLang } = useTheme()
   const tr = useT(lang)
   const { user, logout, updateUser } = useAuth()
@@ -79,7 +86,39 @@ export default function SettingsPage() {
         setTgProjects(pRes.data)
         if (sRes.data.active_project_id) setTgProjectId(sRes.data.active_project_id)
       }
+      if (tab === 'github') {
+        const sRes = await api.get('/github/settings')
+        setGhSettings(sRes.data)
+        if (sRes.data.connected) {
+          try { const rRes = await api.get('/github/repos'); setGhRepos(rRes.data) } catch {}
+        }
+      }
     } catch {}
+  }
+
+  const connectGithub = async () => {
+    if (!ghToken.trim()) return toast.error('أدخل Personal Access Token')
+    setSavingGh(true)
+    try {
+      const r = await api.post('/github/connect', { access_token: ghToken.trim() })
+      toast.success(r.data.message || 'تم الربط بنجاح!')
+      setGhToken('')
+      fetchData()
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'فشل الربط — تأكد من صحة التوكن وصلاحياته')
+    } finally { setSavingGh(false) }
+  }
+
+  const disconnectGithub = async () => {
+    setDisconnectingGh(true)
+    try {
+      await api.delete('/github/disconnect')
+      toast.success('تم فصل GitHub بنجاح')
+      setGhSettings({ connected: false })
+      setGhRepos([])
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'فشل الفصل')
+    } finally { setDisconnectingGh(false) }
   }
 
   const connectTelegram = async () => {
@@ -249,6 +288,7 @@ export default function SettingsPage() {
     { id: 'email', icon: Mail, label: 'البريد', adminOnly: true },
     { id: 'google', icon: HardDrive, label: 'Google Drive', adminOnly: true },
     { id: 'telegram', icon: Send, label: 'تيليغرام' },
+    { id: 'github', icon: Github, label: 'GitHub' },
     { id: 'profile', icon: User, label: tr('profile') },
     { id: 'ratings', icon: Star, label: 'التقييمات', adminOnly: true },
   ]
@@ -1136,6 +1176,185 @@ export default function SettingsPage() {
               {r.rating_comment && <p className="text-xs text-[var(--muted)] mt-2 bg-[var(--bg)] rounded-lg px-3 py-2">{r.rating_comment}</p>}
             </div>
           ))}
+        </div>
+      )}
+
+      {tab === 'github' && (
+        <div className="max-w-2xl space-y-5">
+          {/* Header */}
+          <div className="card p-6">
+            <div className="flex items-center gap-4 mb-5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#24292e] to-[#57606a] flex items-center justify-center shrink-0 shadow-md">
+                <Github size={22} className="text-white" />
+              </div>
+              <div>
+                <h2 className="font-bold text-lg text-[var(--text)]">ربط GitHub</h2>
+                <p className="text-xs text-[var(--muted)]">اربط حسابك وسيتمكن الذكاء الاصطناعي من قراءة مستوداعتك والعمل عليها بالكامل</p>
+              </div>
+              {ghSettings.connected && (
+                <span className="ms-auto flex items-center gap-1.5 text-xs font-semibold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-full px-3 py-1">
+                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                  متصل
+                </span>
+              )}
+            </div>
+
+            {ghSettings.connected ? (
+              <div className="space-y-4">
+                {/* Profile */}
+                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4">
+                  <div className="flex items-center gap-3">
+                    {ghSettings.avatar_url && (
+                      <img src={ghSettings.avatar_url} alt="avatar" className="w-12 h-12 rounded-full border-2 border-green-200 dark:border-green-700" />
+                    )}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <CheckCircle size={15} className="text-green-600 dark:text-green-400" />
+                        <span className="font-semibold text-green-700 dark:text-green-300">
+                          {ghSettings.github_name || ghSettings.github_username}
+                        </span>
+                        <code className="text-xs bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 px-2 py-0.5 rounded-full font-mono">
+                          @{ghSettings.github_username}
+                        </code>
+                      </div>
+                      <p className="text-xs text-green-600 dark:text-green-500 mt-1">
+                        {ghSettings.public_repos} مستودع عام
+                        {ghSettings.connected_at && ` · ربط في ${new Date(ghSettings.connected_at).toLocaleDateString('ar')}`}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Repos preview */}
+                {ghRepos.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-[var(--text)] mb-2 flex items-center gap-2">
+                      <BookOpen size={14} /> أحدث المستودعات
+                    </h3>
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {ghRepos.slice(0, 8).map((repo: any) => (
+                        <a key={repo.id} href={repo.url} target="_blank" rel="noreferrer"
+                          className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg)] border border-[var(--border)] hover:border-[var(--primary)] transition-colors group">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Code2 size={13} className="text-[var(--muted)] shrink-0" />
+                            <span className="text-sm font-medium text-[var(--text)] truncate group-hover:text-[var(--primary)]">{repo.name}</span>
+                            {repo.private && <span className="text-[10px] bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-1.5 py-0.5 rounded-full shrink-0">خاص</span>}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0 ms-2">
+                            {repo.language && <span className="text-xs text-[var(--muted)]">{repo.language}</span>}
+                            {repo.stars > 0 && <span className="text-xs text-yellow-500">★ {repo.stars}</span>}
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-2">
+                  <button onClick={fetchData} className="btn-ghost text-sm flex items-center gap-2">
+                    <RefreshCw size={14} /> تحديث
+                  </button>
+                  <button
+                    onClick={disconnectGithub}
+                    disabled={disconnectingGh}
+                    className="btn-ghost text-sm text-red-500 hover:text-red-600 flex items-center gap-2 border-red-200 hover:border-red-300"
+                  >
+                    {disconnectingGh ? <Loader2 size={14} className="animate-spin" /> : <Unlink size={14} />}
+                    فصل GitHub
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-[var(--text)] mb-2">
+                    Personal Access Token <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      className="input-field pe-10 font-mono text-sm"
+                      type={showGhToken ? 'text' : 'password'}
+                      placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                      value={ghToken}
+                      onChange={e => setGhToken(e.target.value)}
+                      dir="ltr"
+                      onKeyDown={e => e.key === 'Enter' && connectGithub()}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowGhToken(!showGhToken)}
+                      className="absolute end-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)]"
+                    >
+                      {showGhToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  <p className="text-xs text-[var(--muted)] mt-1">الصق التوكن من GitHub ← Settings ← Developer Settings ← Personal Access Tokens</p>
+                </div>
+                <button
+                  onClick={connectGithub}
+                  disabled={savingGh || !ghToken.trim()}
+                  className="btn-primary flex items-center gap-2 disabled:opacity-50"
+                >
+                  {savingGh ? <Loader2 size={15} className="animate-spin" /> : <Github size={15} />}
+                  {savingGh ? 'جاري الربط...' : 'ربط حساب GitHub'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* How to create token */}
+          <div className="card p-6">
+            <h3 className="font-semibold text-[var(--text)] mb-4 flex items-center gap-2">
+              <span className="text-lg">🔑</span>
+              كيفية إنشاء Personal Access Token
+            </h3>
+            <ol className="space-y-3 text-sm text-[var(--text)]">
+              {[
+                { n: 1, text: 'اذهب إلى', link: 'https://github.com/settings/tokens/new', label: 'github.com/settings/tokens' },
+                { n: 2, text: 'اختر "Tokens (classic)" ← Generate new token' },
+                { n: 3, text: 'أعطِ التوكن اسماً مثل', code: 'DataChat-AI' },
+                { n: 4, text: 'فعّل الصلاحيات التالية:', code: 'repo, read:user, user:email' },
+                { n: 5, text: 'انقر "Generate token" وانسخ التوكن' },
+                { n: 6, text: 'الصق التوكن أعلاه واضغط "ربط حساب GitHub"' },
+              ].map((step: any) => (
+                <li key={step.n} className="flex items-start gap-3">
+                  <span className="shrink-0 w-6 h-6 rounded-full bg-[#24292e]/10 text-[#24292e] dark:bg-white/10 dark:text-white text-xs font-bold flex items-center justify-center">{step.n}</span>
+                  <span className="text-[var(--muted)]">
+                    {step.text}
+                    {step.code && <code className="ms-1 bg-[var(--bg)] border border-[var(--border)] rounded px-1.5 py-0.5 text-[var(--primary)] font-mono text-xs">{step.code}</code>}
+                    {step.link && <a href={step.link} target="_blank" rel="noreferrer" className="ms-1 text-[var(--primary)] underline text-xs">{step.label}</a>}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          {/* AI capabilities */}
+          <div className="card p-6">
+            <h3 className="font-semibold text-[var(--text)] mb-4 flex items-center gap-2">
+              <span className="text-lg">🤖</span>
+              ما يستطيع الذكاء الاصطناعي فعله بعد الربط
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                { icon: BookOpen, label: 'قراءة وتحليل الكود', desc: 'يقرأ أي ملف في أي مستودع ويحلله' },
+                { icon: Code2, label: 'إنشاء وتعديل ملفات', desc: 'ينشئ ويعدّل ملفات مع commit تلقائي' },
+                { icon: GitBranch, label: 'إدارة المستودعات', desc: 'ينشئ مستودعات ويدير الفروع' },
+                { icon: GitCommit, label: 'تتبع التغييرات', desc: 'يعرض Commits والـ Issues والـ PRs' },
+              ].map((cap, i) => (
+                <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-[var(--bg)] border border-[var(--border)]">
+                  <cap.icon size={16} className="text-[var(--primary)] mt-0.5 shrink-0" />
+                  <div>
+                    <div className="text-sm font-semibold text-[var(--text)]">{cap.label}</div>
+                    <div className="text-xs text-[var(--muted)]">{cap.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-[var(--muted)] bg-[var(--bg)] border border-[var(--border)] rounded-xl p-3">
+              💡 <strong>مثال:</strong> بعد الربط، يمكنك أن تقول في نافذة التشات: "اقرأ مستودع my-app وأخبرني عن هيكله" أو "أنشئ مستودع جديد باسم portfolio وأضف له README احترافياً"
+            </p>
+          </div>
         </div>
       )}
 

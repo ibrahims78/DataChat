@@ -468,6 +468,405 @@ async function executeDriveFunction(name, args, userId, projectId) {
   }
 }
 
+// ─── GitHub helpers for AI function calling ────────────────────────────────
+
+const GITHUB_FUNCTION_NAMES = new Set([
+  'listGithubRepos','getGithubRepo','listGithubFiles','readGithubFile',
+  'searchGithubCode','createOrUpdateGithubFile','createGithubRepo',
+  'listGithubBranches','createGithubBranch','listGithubCommits',
+  'deleteGithubFile','listGithubIssues','createGithubIssue',
+  'getGithubProfile','forkGithubRepo'
+])
+
+function getGithubTools() {
+  return [{
+    functionDeclarations: [
+      {
+        name: 'listGithubRepos',
+        description: 'يسرد مستودعات GitHub للمستخدم. استخدمها عند طلب عرض المستودعات أو البحث فيها.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            search: { type: 'STRING', description: 'نص البحث في أسماء المستودعات (اختياري)' },
+            sort: { type: 'STRING', description: 'ترتيب: updated, created, pushed, full_name (افتراضي: updated)' },
+            type: { type: 'STRING', description: 'نوع: all, owner, public, private (افتراضي: owner)' }
+          }
+        }
+      },
+      {
+        name: 'getGithubRepo',
+        description: 'يجلب تفاصيل مستودع GitHub محدد: الوصف، اللغة، النجوم، الفروع، الـ Issues، إلخ.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            owner: { type: 'STRING', description: 'اسم المستخدم أو المنظمة صاحب المستودع' },
+            repo: { type: 'STRING', description: 'اسم المستودع' }
+          },
+          required: ['owner', 'repo']
+        }
+      },
+      {
+        name: 'listGithubFiles',
+        description: 'يسرد الملفات والمجلدات في مسار معين داخل مستودع GitHub. استخدمها لاستكشاف هيكل المشروع.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            owner: { type: 'STRING', description: 'اسم المستخدم أو المنظمة' },
+            repo: { type: 'STRING', description: 'اسم المستودع' },
+            path: { type: 'STRING', description: 'المسار داخل المستودع (اتركه فارغاً للمجلد الجذر)' },
+            branch: { type: 'STRING', description: 'اسم الفرع (اختياري، الفرع الرئيسي افتراضياً)' }
+          },
+          required: ['owner', 'repo']
+        }
+      },
+      {
+        name: 'readGithubFile',
+        description: 'يقرأ محتوى ملف كامل من مستودع GitHub. يستخدم لقراءة الكود، README، التوثيق، إلخ.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            owner: { type: 'STRING', description: 'اسم المستخدم أو المنظمة' },
+            repo: { type: 'STRING', description: 'اسم المستودع' },
+            path: { type: 'STRING', description: 'مسار الملف داخل المستودع (مثل: src/index.js أو README.md)' },
+            branch: { type: 'STRING', description: 'اسم الفرع (اختياري)' }
+          },
+          required: ['owner', 'repo', 'path']
+        }
+      },
+      {
+        name: 'searchGithubCode',
+        description: 'يبحث في الكود داخل مستودعات GitHub. يمكن البحث في مستودع محدد أو كل مستودعات المستخدم.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            query: { type: 'STRING', description: 'نص البحث في الكود' },
+            repo: { type: 'STRING', description: 'تقييد البحث لمستودع محدد بصيغة owner/repo (اختياري)' }
+          },
+          required: ['query']
+        }
+      },
+      {
+        name: 'createOrUpdateGithubFile',
+        description: 'ينشئ ملفاً جديداً أو يحدّث ملفاً موجوداً في مستودع GitHub ويعمل commit تلقائياً. استخدمها لرفع الكود والتوثيق والملفات.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            owner: { type: 'STRING', description: 'اسم المستخدم أو المنظمة' },
+            repo: { type: 'STRING', description: 'اسم المستودع' },
+            path: { type: 'STRING', description: 'مسار الملف (مثل: README.md أو src/app.js)' },
+            content: { type: 'STRING', description: 'المحتوى الكامل للملف' },
+            message: { type: 'STRING', description: 'رسالة الـ commit' },
+            branch: { type: 'STRING', description: 'اسم الفرع (اختياري)' }
+          },
+          required: ['owner', 'repo', 'path', 'content', 'message']
+        }
+      },
+      {
+        name: 'createGithubRepo',
+        description: 'ينشئ مستودع GitHub جديداً احترافياً.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            name: { type: 'STRING', description: 'اسم المستودع (بدون مسافات، يفضل استخدام - بدلاً منها)' },
+            description: { type: 'STRING', description: 'وصف المستودع (اختياري)' },
+            private: { type: 'STRING', description: 'هل المستودع خاص؟ true أو false (افتراضي: false)' },
+            autoInit: { type: 'STRING', description: 'إنشاء README تلقائياً؟ true أو false (افتراضي: true)' }
+          },
+          required: ['name']
+        }
+      },
+      {
+        name: 'listGithubBranches',
+        description: 'يسرد كل فروع مستودع GitHub.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            owner: { type: 'STRING', description: 'اسم المستخدم أو المنظمة' },
+            repo: { type: 'STRING', description: 'اسم المستودع' }
+          },
+          required: ['owner', 'repo']
+        }
+      },
+      {
+        name: 'createGithubBranch',
+        description: 'ينشئ فرعاً جديداً في مستودع GitHub.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            owner: { type: 'STRING', description: 'اسم المستخدم أو المنظمة' },
+            repo: { type: 'STRING', description: 'اسم المستودع' },
+            branchName: { type: 'STRING', description: 'اسم الفرع الجديد' },
+            fromBranch: { type: 'STRING', description: 'الفرع المصدر (اختياري، main/master افتراضياً)' }
+          },
+          required: ['owner', 'repo', 'branchName']
+        }
+      },
+      {
+        name: 'listGithubCommits',
+        description: 'يسرد Commits مستودع GitHub.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            owner: { type: 'STRING', description: 'اسم المستخدم أو المنظمة' },
+            repo: { type: 'STRING', description: 'اسم المستودع' },
+            branch: { type: 'STRING', description: 'الفرع (اختياري)' },
+            path: { type: 'STRING', description: 'تصفية commits لملف معين (اختياري)' }
+          },
+          required: ['owner', 'repo']
+        }
+      },
+      {
+        name: 'deleteGithubFile',
+        description: 'يحذف ملفاً من مستودع GitHub بـ commit. استخدمها فقط بموافقة صريحة من المستخدم.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            owner: { type: 'STRING', description: 'اسم المستخدم أو المنظمة' },
+            repo: { type: 'STRING', description: 'اسم المستودع' },
+            path: { type: 'STRING', description: 'مسار الملف' },
+            message: { type: 'STRING', description: 'رسالة الـ commit' },
+            branch: { type: 'STRING', description: 'الفرع (اختياري)' }
+          },
+          required: ['owner', 'repo', 'path', 'message']
+        }
+      },
+      {
+        name: 'listGithubIssues',
+        description: 'يسرد Issues مستودع GitHub.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            owner: { type: 'STRING', description: 'اسم المستخدم أو المنظمة' },
+            repo: { type: 'STRING', description: 'اسم المستودع' },
+            state: { type: 'STRING', description: 'حالة: open, closed, all (افتراضي: open)' }
+          },
+          required: ['owner', 'repo']
+        }
+      },
+      {
+        name: 'createGithubIssue',
+        description: 'ينشئ Issue جديداً في مستودع GitHub.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            owner: { type: 'STRING', description: 'اسم المستخدم أو المنظمة' },
+            repo: { type: 'STRING', description: 'اسم المستودع' },
+            title: { type: 'STRING', description: 'عنوان Issue' },
+            body: { type: 'STRING', description: 'تفاصيل Issue (اختياري)' },
+            labels: { type: 'STRING', description: 'Labels مفصولة بفاصلة (اختياري)' }
+          },
+          required: ['owner', 'repo', 'title']
+        }
+      },
+      {
+        name: 'getGithubProfile',
+        description: 'يجلب معلومات ملف GitHub الشخصي: الاسم، Bio، عدد المستودعات، المتابعون، إلخ.',
+        parameters: { type: 'OBJECT', properties: {} }
+      },
+      {
+        name: 'forkGithubRepo',
+        description: 'ينشئ Fork من مستودع GitHub في حساب المستخدم.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            owner: { type: 'STRING', description: 'اسم صاحب المستودع الأصلي' },
+            repo: { type: 'STRING', description: 'اسم المستودع الأصلي' }
+          },
+          required: ['owner', 'repo']
+        }
+      }
+    ]
+  }]
+}
+
+async function executeGithubFunction(name, args, userId) {
+  const tokenRow = await db.query('SELECT access_token, github_username FROM github_settings WHERE user_id=$1', [userId])
+  if (!tokenRow.rows.length) throw new Error('لم يتم ربط GitHub. يرجى الربط أولاً من الإعدادات.')
+  const token = tokenRow.rows[0].access_token
+  const username = tokenRow.rows[0].github_username
+
+  const axios = require('axios')
+  const gh = axios.create({
+    baseURL: 'https://api.github.com',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github.v3+json',
+      'User-Agent': 'DataChat-AI/1.0'
+    },
+    timeout: 30000,
+    validateStatus: null
+  })
+
+  switch (name) {
+    case 'listGithubRepos': {
+      const r = await gh.get('/user/repos', {
+        params: { sort: args.sort || 'updated', type: args.type || 'owner', per_page: 50 }
+      })
+      if (r.status !== 200) throw new Error(r.data?.message || 'فشل جلب المستودعات')
+      let repos = r.data
+      if (args.search) repos = repos.filter(repo => repo.name.toLowerCase().includes(args.search.toLowerCase()))
+      return repos.slice(0, 30).map(repo => ({
+        name: repo.name, full_name: repo.full_name, description: repo.description,
+        private: repo.private, language: repo.language, stars: repo.stargazers_count,
+        updated_at: repo.updated_at, default_branch: repo.default_branch, url: repo.html_url
+      }))
+    }
+
+    case 'getGithubRepo': {
+      const r = await gh.get(`/repos/${args.owner}/${args.repo}`)
+      if (r.status !== 200) throw new Error(r.data?.message || 'فشل جلب المستودع')
+      const repo = r.data
+      return {
+        name: repo.name, full_name: repo.full_name, description: repo.description,
+        private: repo.private, language: repo.language, stars: repo.stargazers_count,
+        forks: repo.forks_count, open_issues: repo.open_issues_count,
+        default_branch: repo.default_branch, created_at: repo.created_at,
+        updated_at: repo.updated_at, url: repo.html_url,
+        topics: repo.topics, license: repo.license?.name, size_kb: repo.size
+      }
+    }
+
+    case 'listGithubFiles': {
+      const params = args.branch ? { ref: args.branch } : {}
+      const r = await gh.get(`/repos/${args.owner}/${args.repo}/contents/${args.path || ''}`, { params })
+      if (r.status !== 200) throw new Error(r.data?.message || 'فشل جلب الملفات')
+      const items = Array.isArray(r.data) ? r.data : [r.data]
+      return items.map(f => ({ name: f.name, path: f.path, type: f.type, size: f.size, url: f.html_url }))
+    }
+
+    case 'readGithubFile': {
+      const params = args.branch ? { ref: args.branch } : {}
+      const r = await gh.get(`/repos/${args.owner}/${args.repo}/contents/${args.path}`, { params })
+      if (r.status !== 200) throw new Error(r.data?.message || 'فشل قراءة الملف')
+      if (r.data.encoding === 'base64') {
+        const content = Buffer.from(r.data.content.replace(/\n/g, ''), 'base64').toString('utf8')
+        return { path: r.data.path, size: r.data.size, content: content.substring(0, 80000), sha: r.data.sha, url: r.data.html_url }
+      }
+      return { path: r.data.path, content: r.data.content, sha: r.data.sha }
+    }
+
+    case 'searchGithubCode': {
+      let q = args.query
+      if (args.repo) q += ` repo:${args.repo}`
+      else q += ` user:${username}`
+      const r = await gh.get('/search/code', { params: { q, per_page: 10 } })
+      if (r.status !== 200) throw new Error(r.data?.message || 'فشل البحث')
+      return r.data.items.map(i => ({
+        name: i.name, path: i.path,
+        repository: i.repository.full_name, url: i.html_url
+      }))
+    }
+
+    case 'createOrUpdateGithubFile': {
+      let sha = undefined
+      try {
+        const existing = await gh.get(`/repos/${args.owner}/${args.repo}/contents/${args.path}`)
+        if (existing.status === 200) sha = existing.data.sha
+      } catch {}
+      const content = Buffer.from(args.content, 'utf8').toString('base64')
+      const body = { message: args.message, content, ...(sha ? { sha } : {}), ...(args.branch ? { branch: args.branch } : {}) }
+      const r = await gh.put(`/repos/${args.owner}/${args.repo}/contents/${args.path}`, body)
+      if (r.status !== 200 && r.status !== 201) throw new Error(r.data?.message || 'فشل إنشاء/تحديث الملف')
+      return { path: args.path, action: sha ? 'updated' : 'created', commit: r.data.commit?.sha?.substring(0, 7), url: r.data.content?.html_url, message: `✅ تم ${sha ? 'تحديث' : 'إنشاء'} الملف ${args.path} بنجاح` }
+    }
+
+    case 'createGithubRepo': {
+      const r = await gh.post('/user/repos', {
+        name: args.name, description: args.description || '',
+        private: args.private === 'true' || args.private === true,
+        auto_init: args.autoInit !== 'false' && args.autoInit !== false,
+        has_issues: true, has_wiki: false
+      })
+      if (r.status !== 201) throw new Error(r.data?.message || 'فشل إنشاء المستودع')
+      return { name: r.data.name, full_name: r.data.full_name, url: r.data.html_url, private: r.data.private, clone_url: r.data.clone_url, message: `✅ تم إنشاء مستودع ${r.data.full_name} بنجاح` }
+    }
+
+    case 'listGithubBranches': {
+      const r = await gh.get(`/repos/${args.owner}/${args.repo}/branches`)
+      if (r.status !== 200) throw new Error(r.data?.message || 'فشل جلب الفروع')
+      return r.data.map(b => ({ name: b.name, protected: b.protected, commit_sha: b.commit.sha.substring(0, 7) }))
+    }
+
+    case 'createGithubBranch': {
+      const fromBranch = args.fromBranch || 'main'
+      let sha
+      const refRes = await gh.get(`/repos/${args.owner}/${args.repo}/git/refs/heads/${fromBranch}`)
+      if (refRes.status !== 200) {
+        const masterRes = await gh.get(`/repos/${args.owner}/${args.repo}/git/refs/heads/master`)
+        if (masterRes.status !== 200) throw new Error('لم يتم العثور على الفرع المصدر')
+        sha = masterRes.data.object.sha
+      } else { sha = refRes.data.object.sha }
+      const r = await gh.post(`/repos/${args.owner}/${args.repo}/git/refs`, { ref: `refs/heads/${args.branchName}`, sha })
+      if (r.status !== 201) throw new Error(r.data?.message || 'فشل إنشاء الفرع')
+      return { message: `✅ تم إنشاء الفرع ${args.branchName} من ${fromBranch} بنجاح` }
+    }
+
+    case 'listGithubCommits': {
+      const params = { per_page: 20 }
+      if (args.branch) params.sha = args.branch
+      if (args.path) params.path = args.path
+      const r = await gh.get(`/repos/${args.owner}/${args.repo}/commits`, { params })
+      if (r.status !== 200) throw new Error(r.data?.message || 'فشل جلب الـ Commits')
+      return r.data.map(c => ({
+        sha: c.sha.substring(0, 7), message: c.commit.message.split('\n')[0],
+        author: c.commit.author.name, date: c.commit.author.date, url: c.html_url
+      }))
+    }
+
+    case 'deleteGithubFile': {
+      const existing = await gh.get(`/repos/${args.owner}/${args.repo}/contents/${args.path}`)
+      if (existing.status !== 200) throw new Error('الملف غير موجود')
+      const body = { message: args.message, sha: existing.data.sha, ...(args.branch ? { branch: args.branch } : {}) }
+      const r = await gh.delete(`/repos/${args.owner}/${args.repo}/contents/${args.path}`, { data: body })
+      if (r.status !== 200) throw new Error(r.data?.message || 'فشل حذف الملف')
+      return { message: `✅ تم حذف الملف ${args.path} بنجاح` }
+    }
+
+    case 'listGithubIssues': {
+      const r = await gh.get(`/repos/${args.owner}/${args.repo}/issues`, {
+        params: { state: args.state || 'open', per_page: 20 }
+      })
+      if (r.status !== 200) throw new Error(r.data?.message || 'فشل جلب Issues')
+      return r.data.filter(i => !i.pull_request).map(i => ({
+        number: i.number, title: i.title, state: i.state,
+        labels: i.labels.map(l => l.name), created_at: i.created_at, url: i.html_url
+      }))
+    }
+
+    case 'createGithubIssue': {
+      const body = {
+        title: args.title, body: args.body || '',
+        ...(args.labels ? { labels: args.labels.split(',').map(l => l.trim()) } : {})
+      }
+      const r = await gh.post(`/repos/${args.owner}/${args.repo}/issues`, body)
+      if (r.status !== 201) throw new Error(r.data?.message || 'فشل إنشاء Issue')
+      return { number: r.data.number, title: r.data.title, url: r.data.html_url, message: `✅ تم إنشاء Issue #${r.data.number} بنجاح` }
+    }
+
+    case 'getGithubProfile': {
+      const r = await gh.get('/user')
+      if (r.status !== 200) throw new Error('فشل جلب الملف الشخصي')
+      return {
+        login: r.data.login, name: r.data.name, bio: r.data.bio,
+        public_repos: r.data.public_repos, private_repos: r.data.total_private_repos,
+        followers: r.data.followers, following: r.data.following,
+        company: r.data.company, location: r.data.location, url: r.data.html_url
+      }
+    }
+
+    case 'forkGithubRepo': {
+      const r = await gh.post(`/repos/${args.owner}/${args.repo}/forks`)
+      if (r.status !== 202) throw new Error(r.data?.message || 'فشل إنشاء Fork')
+      return { name: r.data.name, full_name: r.data.full_name, url: r.data.html_url, message: `✅ تم Fork المستودع ${args.owner}/${args.repo} في حسابك` }
+    }
+
+    default:
+      throw new Error(`دالة GitHub غير معروفة: ${name}`)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function resolveUploadPath(file) {
   if (file._filePath) return file._filePath
   if (file.user_id && file.project_id) {
@@ -1688,7 +2087,20 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         }
       } catch {}
 
-      const effectiveSystemText = systemText + driveSystemAddition
+      // Check if user has GitHub connected — enable GitHub function calling if so
+      let githubTools = []
+      let githubSystemAddition = ''
+      try {
+        const ghCheck = await db.query('SELECT github_username FROM github_settings WHERE user_id=$1', [req.user.id])
+        if (ghCheck.rows.length > 0) {
+          githubTools = getGithubTools()
+          const ghUser = ghCheck.rows[0].github_username
+          githubSystemAddition = `\n\n---\n## صلاحيات GitHub (متاحة الآن — حساب: @${ghUser})\nأنت متصل بـ GitHub للمستخدم. يمكنك تنفيذ **كل عمليات GitHub** مباشرةً بدون تردد:\n### قراءة وتحليل الكود\n- **عرض المستودعات**: listGithubRepos(search?, sort?, type?)\n- **تفاصيل مستودع**: getGithubRepo(owner, repo)\n- **استعراض الملفات**: listGithubFiles(owner, repo, path?, branch?)\n- **قراءة الكود**: readGithubFile(owner, repo, path, branch?)\n- **بحث في الكود**: searchGithubCode(query, repo?)\n- **الملف الشخصي**: getGithubProfile()\n### إنشاء وتعديل\n- **إنشاء/تحديث ملف مع commit**: createOrUpdateGithubFile(owner, repo, path, content, message, branch?)\n- **إنشاء مستودع جديد**: createGithubRepo(name, description?, private?, autoInit?)\n- **إنشاء فرع**: createGithubBranch(owner, repo, branchName, fromBranch?)\n- **حذف ملف**: deleteGithubFile(owner, repo, path, message) — تأكد من موافقة المستخدم\n- **Fork مستودع**: forkGithubRepo(owner, repo)\n### تاريخ وتتبع\n- **قائمة Commits**: listGithubCommits(owner, repo, branch?, path?)\n- **قائمة الفروع**: listGithubBranches(owner, repo)\n- **Issues**: listGithubIssues(owner, repo, state?) / createGithubIssue(owner, repo, title, body?, labels?)\nعند طلب أي عملية GitHub (قراءة كود، رفع ملف، إنشاء مستودع، commit، إلخ) استخدم الدوال مباشرةً. يمكنك قراءة ملفات متعددة لتحليل المشروع كاملاً. لا تقل "لا أستطيع".`
+        }
+      } catch {}
+
+      const allTools = [...driveTools, ...githubTools]
+      const effectiveSystemText = systemText + driveSystemAddition + githubSystemAddition
 
       const modelConfig = {
         model: selectedModel,
@@ -1698,8 +2110,8 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         },
         systemInstruction: { role: 'user', parts: [{ text: effectiveSystemText }] }
       }
-      if (driveTools.length) {
-        modelConfig.tools = driveTools
+      if (allTools.length) {
+        modelConfig.tools = allTools
         modelConfig.toolConfig = { functionCallingConfig: { mode: 'AUTO' } }
       }
 
@@ -1721,10 +2133,10 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
           ? [{ text: message }, ...imageParts]
           : message
 
-        if (driveTools.length) {
-          // ── Function-calling path (Drive connected) ────────────────────────
+        if (allTools.length) {
+          // ── Function-calling path (Drive/GitHub connected) ─────────────────
           let response = await chat.sendMessage(messageParts)
-          let maxIter = 5
+          let maxIter = 8
           let iter = 0
 
           while (iter < maxIter) {
@@ -1734,15 +2146,18 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
 
             const functionResponseParts = []
             for (const fc of calls) {
-              // Notify client that a Drive action is running
-              res.write(`data: ${JSON.stringify({ type: 'drive_action_start', action: fc.name, args: fc.args })}\n\n`)
+              const isGithub = GITHUB_FUNCTION_NAMES.has(fc.name)
+              const actionType = isGithub ? 'github' : 'drive'
+              res.write(`data: ${JSON.stringify({ type: `${actionType}_action_start`, action: fc.name, args: fc.args })}\n\n`)
               try {
-                const result = await executeDriveFunction(fc.name, fc.args, req.user.id, req.params.projectId)
-                res.write(`data: ${JSON.stringify({ type: 'drive_action_done', action: fc.name, result })}\n\n`)
+                const result = isGithub
+                  ? await executeGithubFunction(fc.name, fc.args, req.user.id)
+                  : await executeDriveFunction(fc.name, fc.args, req.user.id, req.params.projectId)
+                res.write(`data: ${JSON.stringify({ type: `${actionType}_action_done`, action: fc.name, result })}\n\n`)
                 functionResponseParts.push({ functionResponse: { name: fc.name, response: result } })
               } catch (e) {
                 const errResult = { error: e.message }
-                res.write(`data: ${JSON.stringify({ type: 'drive_action_error', action: fc.name, error: e.message })}\n\n`)
+                res.write(`data: ${JSON.stringify({ type: `${actionType}_action_error`, action: fc.name, error: e.message })}\n\n`)
                 functionResponseParts.push({ functionResponse: { name: fc.name, response: errResult } })
               }
             }

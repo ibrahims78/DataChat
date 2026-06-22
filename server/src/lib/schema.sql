@@ -163,6 +163,20 @@ CREATE TABLE IF NOT EXISTS project_drive_links (
   UNIQUE(project_id, drive_file_id)
 );
 
+-- GitHub Settings (per user — Personal Access Token)
+CREATE TABLE IF NOT EXISTS github_settings (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+  access_token TEXT NOT NULL,
+  github_username VARCHAR(255),
+  github_name VARCHAR(255),
+  avatar_url TEXT,
+  public_repos INTEGER DEFAULT 0,
+  connected_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_github_settings_user_id ON github_settings(user_id);
+
 -- Telegram Bot Settings (per user)
 CREATE TABLE IF NOT EXISTS telegram_settings (
   id SERIAL PRIMARY KEY,

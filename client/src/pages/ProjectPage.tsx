@@ -285,6 +285,30 @@ export default function ProjectPage() {
               } else if (data.type === 'drive_action_error') {
                 toast.error(`خطأ Drive: ${data.error}`, { duration: 4000 })
                 setTypingStep('جاري صياغة الإجابة…')
+              } else if (data.type === 'github_action_start') {
+                const ghActionNames: Record<string, string> = {
+                  listGithubRepos: '🔍 جارٍ استعراض المستودعات…',
+                  getGithubRepo: '📁 جارٍ جلب تفاصيل المستودع…',
+                  listGithubFiles: '📂 جارٍ استعراض الملفات…',
+                  readGithubFile: '📄 جارٍ قراءة الملف…',
+                  searchGithubCode: '🔍 جارٍ البحث في الكود…',
+                  createOrUpdateGithubFile: '✍️ جارٍ رفع الملف وعمل commit…',
+                  createGithubRepo: '🏗️ جارٍ إنشاء المستودع…',
+                  listGithubBranches: '🌿 جارٍ استعراض الفروع…',
+                  createGithubBranch: '🌿 جارٍ إنشاء الفرع…',
+                  listGithubCommits: '📜 جارٍ جلب Commits…',
+                  deleteGithubFile: '🗑️ جارٍ حذف الملف…',
+                  listGithubIssues: '🐛 جارٍ جلب Issues…',
+                  createGithubIssue: '🐛 جارٍ إنشاء Issue…',
+                  getGithubProfile: '👤 جارٍ جلب الملف الشخصي…',
+                  forkGithubRepo: '🍴 جارٍ عمل Fork…',
+                }
+                setTypingStep(ghActionNames[data.action] || '⚙️ جارٍ تنفيذ عملية GitHub…')
+              } else if (data.type === 'github_action_done') {
+                setTypingStep('جاري صياغة الإجابة…')
+              } else if (data.type === 'github_action_error') {
+                toast.error(`خطأ GitHub: ${data.error}`, { duration: 4000 })
+                setTypingStep('جاري صياغة الإجابة…')
               } else if (data.type === 'folder_action') {
                 if (data.action === 'create_dir' && data.path) {
                   const fname = primaryFolderRef.current?.name || ''
