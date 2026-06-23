@@ -12,7 +12,6 @@ channel = "stable-25_05"
 [userenv.shared]
 NODE_ENV = "development"
 PORT = "3001"
-JWT_SECRET = "datachat-jwt-secret-tzfg2layhgpd3vba0hcgud"
 
 [workflows]
 runButton = "Project"
