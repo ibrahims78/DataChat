@@ -209,8 +209,10 @@ router.get('/files', authenticate, async (req, res) => {
     const pageToken = req.query.pageToken || undefined
     const q = req.query.q || ''
 
+    const allFolders = req.query.allFolders === '1'
     let query = `'${folderId}' in parents and trashed = false`
-    if (q) query = `name contains '${q.replace(/'/g, "\\'")}' and trashed = false`
+    if (allFolders) query = `mimeType = 'application/vnd.google-apps.folder' and trashed = false`
+    else if (q) query = `name contains '${q.replace(/'/g, "\\'")}' and trashed = false`
 
     const resp = await drive.files.list({
       q: query,

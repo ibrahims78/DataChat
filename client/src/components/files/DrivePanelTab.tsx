@@ -282,11 +282,12 @@ export default function DrivePanelTab({ projectId, onImport }: Props) {
   }
 
   const doCopy = async (file: DriveFile) => {
+    const tid = toast.loading(`جاري نسخ "${file.name}"…`)
     try {
       await api.post(`/drive/file/${file.id}/copy`, { name: `نسخة من ${file.name}`, folderId: currentFolder })
-      toast.success('تم النسخ')
+      toast.dismiss(tid); toast.success('✅ تم النسخ')
       loadFiles(currentFolder)
-    } catch (err: any) { toast.error(err.response?.data?.error || 'فشل النسخ') }
+    } catch (err: any) { toast.dismiss(tid); toast.error(err.response?.data?.error || 'فشل النسخ') }
   }
 
   const doImport = async () => {
@@ -315,9 +316,9 @@ export default function DrivePanelTab({ projectId, onImport }: Props) {
     setMoveTarget(file)
     setMoveFoldersLoading(true)
     try {
-      const r = await api.get('/drive/files', { params: { folderId: 'root' } })
-      const allFolders = (r.data.files ?? r.data).filter((f: DriveFile) => f.mimeType === FOLDER_MIME && f.id !== file.id)
-      setMoveFolders([{ id: 'root', name: 'My Drive (الجذر)', mimeType: FOLDER_MIME }, ...allFolders])
+      const r = await api.get('/drive/files', { params: { allFolders: '1' } })
+      const folders = (r.data.files ?? r.data).filter((f: DriveFile) => f.mimeType === FOLDER_MIME && f.id !== file.id)
+      setMoveFolders([{ id: 'root', name: 'My Drive (الجذر)', mimeType: FOLDER_MIME }, ...folders])
     } catch { toast.error('فشل تحميل المجلدات') }
     finally { setMoveFoldersLoading(false) }
   }

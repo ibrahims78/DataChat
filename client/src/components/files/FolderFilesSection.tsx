@@ -324,11 +324,25 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
     setImportingAll(prev => new Set([...prev, folderName]))
     const tid = toast.loading(`جاري استيراد ${files.length} ملف…`)
     let done = 0
+    let limitHit = false
     for (const fi of files) {
-      try { const file = await fi.fileHandle.getFile(); await uploadChunked(file, projectId, () => {}); done++ } catch {}
+      try {
+        const file = await fi.fileHandle.getFile()
+        await uploadChunked(file, projectId, () => {})
+        done++
+      } catch (err: any) {
+        if (err?.message?.includes('Maximum 10') || err?.response?.data?.error?.includes('Maximum 10')) {
+          limitHit = true; break
+        }
+      }
     }
     await onRefresh()
-    toast.dismiss(tid); toast.success(`✅ تم استيراد ${done} من أصل ${files.length} ملف`)
+    toast.dismiss(tid)
+    if (limitHit) {
+      toast.error(`تم الوصول للحد الأقصى (10 ملفات). تم استيراد ${done} ملف فقط.`, { duration: 5000 })
+    } else {
+      toast.success(`✅ تم استيراد ${done} من أصل ${files.length} ملف`)
+    }
     setImportingAll(prev => { const s = new Set(prev); s.delete(folderName); return s })
   }, [filesByFolder, projectId, onRefresh])
 
