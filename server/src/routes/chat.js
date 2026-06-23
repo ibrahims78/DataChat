@@ -1127,7 +1127,7 @@ async function extractFileContent(file) {
         const mimeType = mimeMap[ext] || 'image/jpeg'
         const imageData = fs.readFileSync(filePath).toString('base64')
         const aiRow = await db.query('SELECT api_key FROM ai_settings WHERE id=1')
-        const ocrApiKey = aiRow.rows[0]?.api_key || null
+        const ocrApiKey = aiRow.rows[0]?.api_key || process.env.GEMINI_API_KEY || null
         if (!ocrApiKey) return `[ملف صورة: ${file.original_name}]\n[تعذّر استخراج النص: لم يتم ضبط مفتاح Gemini API في الإعدادات]`
         const genAI = getGenAI(ocrApiKey)
         const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
@@ -2023,12 +2023,13 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
 
     let genAI
     if (provider === 'gemini') {
-      if (!aiConfig.api_key) {
+      const resolvedKey = aiConfig.api_key || process.env.GEMINI_API_KEY
+      if (!resolvedKey) {
         res.write(`data: ${JSON.stringify({ type: 'text', content: 'عذراً، لم يتم ضبط مفتاح Gemini API. يرجى إضافته من صفحة الإعدادات ← إعدادات AI.' })}\n\n`)
         res.write('data: [DONE]\n\n')
         return res.end()
       }
-      genAI = getGenAI(aiConfig.api_key)
+      genAI = getGenAI(resolvedKey)
     }
 
     let fullResponse = ''
