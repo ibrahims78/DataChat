@@ -2107,7 +2107,23 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         const driveCheck = await db.query('SELECT id FROM google_oauth WHERE user_id=$1', [req.user.id])
         if (driveCheck.rows.length > 0) {
           driveTools = getDriveTools()
-          driveSystemAddition = `\n\n---\n## صلاحيات Google Drive (متاحة الآن)\nأنت متصل بـ Google Drive للمستخدم. يمكنك تنفيذ العمليات التالية مباشرةً:\n- **عرض/بحث الملفات**: listDriveFiles(folderId?, searchQuery?)\n- **إنشاء مجلد**: createDriveFolder(name, parentId?)\n- **إعادة تسمية**: renameDriveFile(fileId, newName)\n- **حذف (سلة المهملات)**: deleteDriveFile(fileId, fileName) — تأكد من موافقة المستخدم\n- **نسخ**: copyDriveFile(fileId, name?, folderId?)\n- **قراءة محتوى ملف مباشرةً للتحليل**: readDriveFileContent(fileId, fileName) — يقرأ الملف ويُعيد محتواه بدون استيراده للمشروع (يدعم Excel/CSV/PDF/Word/TXT/JSON)\n- **استيراد من Drive للمشروع**: importDriveFileToProject(fileId, fileName) — يضيف الملف لقائمة ملفات المشروع الدائمة\n- **رفع ملف مُولَّد إلى Drive**: uploadGeneratedFileToDrive(genFileId, folderId?) — استخدم معرّف الملف المُولَّد بعد إنشائه\n- **نقل**: moveDriveFile(fileId, targetFolderId, targetFolderName?)\nعند طلب المستخدم أي عملية Drive، استخدم الدوال مباشرةً دون تردد. لا تقل "لا أستطيع".`
+
+          // Fetch project drive-linked files so AI knows their IDs
+          let linkedFilesSection = ''
+          try {
+            const linkedFiles = await db.query(
+              'SELECT drive_file_id, drive_file_name, drive_mime_type FROM project_drive_links WHERE project_id=$1 AND user_id=$2 ORDER BY linked_at DESC',
+              [req.params.projectId, req.user.id]
+            )
+            if (linkedFiles.rows.length > 0) {
+              const fileList = linkedFiles.rows.map(f =>
+                `  - "${f.drive_file_name}" → fileId: \`${f.drive_file_id}\` (${f.drive_mime_type || 'unknown'})`
+              ).join('\n')
+              linkedFilesSection = `\n\n### ملفات Drive المرتبطة بهذا المشروع (موجودة في Google Drive وتحمل fileId صالح)\nهذه الملفات موجودة فعلياً في Google Drive ويمكنك تنفيذ أي عملية عليها مباشرةً (نقل، نسخ، تسمية، حذف، قراءة) باستخدام fileId الموضح:\n${fileList}\n⚠️ عند طلب المستخدم أي عملية على ملف مرتبط (مثل نقله أو نسخه)، استخدم fileId المقابل مباشرةً — هذه الملفات في Drive وليست محلية.`
+            }
+          } catch {}
+
+          driveSystemAddition = `\n\n---\n## صلاحيات Google Drive (متاحة الآن)\nأنت متصل بـ Google Drive للمستخدم. يمكنك تنفيذ العمليات التالية مباشرةً:\n- **عرض/بحث الملفات**: listDriveFiles(folderId?, searchQuery?)\n- **إنشاء مجلد**: createDriveFolder(name, parentId?)\n- **إعادة تسمية**: renameDriveFile(fileId, newName)\n- **حذف (سلة المهملات)**: deleteDriveFile(fileId, fileName) — تأكد من موافقة المستخدم\n- **نسخ**: copyDriveFile(fileId, name?, folderId?)\n- **قراءة محتوى ملف مباشرةً للتحليل**: readDriveFileContent(fileId, fileName) — يقرأ الملف ويُعيد محتواه بدون استيراده للمشروع (يدعم Excel/CSV/PDF/Word/TXT/JSON)\n- **استيراد من Drive للمشروع**: importDriveFileToProject(fileId, fileName) — يضيف الملف لقائمة ملفات المشروع الدائمة\n- **رفع ملف مُولَّد إلى Drive**: uploadGeneratedFileToDrive(genFileId, folderId?) — استخدم معرّف الملف المُولَّد بعد إنشائه\n- **نقل**: moveDriveFile(fileId, targetFolderId, targetFolderName?)\nعند طلب المستخدم أي عملية Drive، استخدم الدوال مباشرةً دون تردد. لا تقل "لا أستطيع".` + linkedFilesSection
         }
       } catch {}
 
