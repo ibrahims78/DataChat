@@ -5,6 +5,9 @@ const { authenticate, adminOnly } = require('../middleware/auth')
 const xlsx = require('xlsx')
 const pdf = require('pdf-parse')
 const mammoth = require('mammoth')
+const multer = require('multer')
+const { Readable } = require('stream')
+const uploadMem = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } })
 
 const router = express.Router()
 
@@ -172,6 +175,29 @@ router.delete('/auth/disconnect', authenticate, async (req, res) => {
     await db.query('DELETE FROM google_oauth WHERE user_id=$1', [req.user.id])
     res.json({ ok: true })
   } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// ─── Upload local file (from browser) to Drive ────────────────────────────────
+router.post('/upload-local', authenticate, uploadMem.single('file'), async (req, res) => {
+  try {
+    const auth = await getAuthedClient(req)
+    const drive = google.drive({ version: 'v3', auth })
+    if (!req.file) return res.status(400).json({ error: 'لم يتم إرسال ملف' })
+
+    const { folderId } = req.body
+    const fileMetadata = { name: req.file.originalname }
+    if (folderId && folderId !== 'root') fileMetadata.parents = [folderId]
+
+    const stream = Readable.from(req.file.buffer)
+    const response = await drive.files.create({
+      requestBody: fileMetadata,
+      media: { mimeType: req.file.mimetype || 'application/octet-stream', body: stream },
+      fields: 'id,name,webViewLink',
+    })
+    res.json({ ok: true, driveFile: response.data })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
 })
 
 // ─── File Operations ──────────────────────────────────────────────────────────

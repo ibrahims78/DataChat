@@ -3,7 +3,7 @@ import {
   FolderOpen, RefreshCw, Download, MessageSquare, Trash2,
   ChevronDown, ChevronUp, Loader2, AlertCircle, BookOpen,
   Pencil, Copy, MoveRight, FolderPlus, Check, X, FileEdit,
-  MoreHorizontal
+  MoreHorizontal, HardDrive
 } from 'lucide-react'
 import { useFolderSyncContext } from '../../contexts/FolderSyncContext'
 import type { FileInfo, FolderEntry } from '../../lib/useFolderSync'
@@ -256,6 +256,7 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
   const [copyMoveTarget, setCopyMoveTarget] = useState<{ mode: 'copy' | 'move'; folder: string; fi: FileInfo } | null>(null)
   const [editTarget, setEditTarget] = useState<{ folder: string; fi: FileInfo } | null>(null)
   const [openActionMenu, setOpenActionMenu] = useState<string | null>(null)
+  const [uploadingToDrive, setUploadingToDrive] = useState<Set<string>>(new Set())
 
   const allFiles = Object.values(filesByFolder).flat()
 
@@ -428,6 +429,42 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
       toast.dismiss(tid); toast.error('فشل إنشاء المجلد')
     }
   }, [creatingFolder, createDirectory, loadFolder])
+
+  // ── Upload to Drive ──────────────────────────────────────────────────────────
+  const uploadToDrive = useCallback(async (folderName: string, fi: FileInfo) => {
+    const key = `${folderName}:${fi.path}`
+    setUploadingToDrive(prev => new Set([...prev, key]))
+    const tid = toast.loading(`جاري رفع "${fi.name}" إلى Google Drive…`)
+    try {
+      const file = await fi.fileHandle.getFile()
+      const formData = new FormData()
+      formData.append('file', file, fi.name)
+      const token = localStorage.getItem('token')
+      const res = await fetch('/api/drive/upload-local', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'فشل الرفع')
+      toast.dismiss(tid)
+      toast.success(
+        <span>
+          ✅ تم رفع "{fi.name}" إلى Drive
+          {data.driveFile?.webViewLink && (
+            <a href={data.driveFile.webViewLink} target="_blank" rel="noreferrer"
+              className="underline mr-2 text-blue-600">فتح</a>
+          )}
+        </span>,
+        { duration: 5000 }
+      )
+    } catch (err: any) {
+      toast.dismiss(tid)
+      toast.error(err.message || 'فشل رفع الملف إلى Drive')
+    } finally {
+      setUploadingToDrive(prev => { const s = new Set(prev); s.delete(key); return s })
+    }
+  }, [])
 
   // ── Edit ────────────────────────────────────────────────────────────────────
   const saveEdit = useCallback(async (folderName: string, filePath: string, content: string) => {
@@ -610,6 +647,18 @@ export default function FolderFilesSection({ projectId, onRefresh, onAnalyze, on
                               {isBusy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
                             </button>
                           )}
+                          {/* Upload to Drive */}
+                          {(() => {
+                            const driveKey = `${folder.name}:${fi.path}`
+                            const isDriveUploading = uploadingToDrive.has(driveKey)
+                            return (
+                              <button onClick={e => { e.stopPropagation(); uploadToDrive(folder.name, fi) }}
+                                disabled={isDriveUploading} title="رفع إلى Google Drive"
+                                className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/30 text-[var(--muted)] hover:text-green-600 transition-colors disabled:opacity-40">
+                                {isDriveUploading ? <Loader2 size={12} className="animate-spin" /> : <HardDrive size={12} />}
+                              </button>
+                            )
+                          })()}
                           {/* More actions — overflow menu */}
                           <div className="relative">
                             <button onClick={e => { e.stopPropagation(); setOpenActionMenu(menuOpen ? null : fi.path) }}
