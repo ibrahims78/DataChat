@@ -479,6 +479,10 @@ const GITHUB_FUNCTION_NAMES = new Set([
   'getGithubProfile','forkGithubRepo'
 ])
 
+const PROJECT_FILE_FUNCTION_NAMES = new Set([
+  'listProjectFiles','renameProjectFile','deleteProjectFile','moveProjectFileToFolder'
+])
+
 function getGithubTools() {
   return [{
     functionDeclarations: [
@@ -863,6 +867,114 @@ async function executeGithubFunction(name, args, userId) {
 
     default:
       throw new Error(`دالة GitHub غير معروفة: ${name}`)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getProjectFileTools() {
+  return [{
+    functionDeclarations: [
+      {
+        name: 'listProjectFiles',
+        description: 'يسرد كل ملفات المشروع الحالي المرفوعة والمُولَّدة مع معرفاتها ومجلداتها. استخدمها عندما يحتاج المستخدم لمعرفة الملفات الموجودة أو عند تنفيذ عمليات تتطلب معرّفات الملفات.',
+        parameters: { type: 'OBJECT', properties: {} }
+      },
+      {
+        name: 'renameProjectFile',
+        description: 'يعيد تسمية ملف مرفوع في المشروع الحالي. استخدمها عند طلب إعادة تسمية ملف.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            fileId: { type: 'STRING', description: 'معرّف الملف (رقم من listProjectFiles)' },
+            newName: { type: 'STRING', description: 'الاسم الجديد للملف (مع الامتداد)' }
+          },
+          required: ['fileId', 'newName']
+        }
+      },
+      {
+        name: 'deleteProjectFile',
+        description: 'يحذف ملفاً مرفوعاً من المشروع نهائياً. استخدمها فقط بموافقة صريحة من المستخدم.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            fileId: { type: 'STRING', description: 'معرّف الملف' },
+            fileName: { type: 'STRING', description: 'اسم الملف (للعرض في الرسالة)' }
+          },
+          required: ['fileId', 'fileName']
+        }
+      },
+      {
+        name: 'moveProjectFileToFolder',
+        description: 'ينقل ملفاً مرفوعاً إلى مجلد مختلف داخل المشروع (أو يُخرجه لـ "غير مصنّف" بترك folderId فارغاً).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            fileId: { type: 'STRING', description: 'معرّف الملف' },
+            folderId: { type: 'STRING', description: 'معرّف المجلد الهدف. اتركه فارغاً لنقله لـ "غير مصنّف".' },
+            folderName: { type: 'STRING', description: 'اسم المجلد الهدف (للعرض)' }
+          },
+          required: ['fileId']
+        }
+      }
+    ]
+  }]
+}
+
+async function executeProjectFileFunction(name, args, userId, projectId, db) {
+  switch (name) {
+    case 'listProjectFiles': {
+      const [files, genFiles, folders] = await Promise.all([
+        db.query('SELECT id, display_name, original_name, file_type, file_size, folder_id FROM files WHERE project_id=$1 ORDER BY sort_order, id', [projectId]),
+        db.query('SELECT id, original_name, file_type, file_size FROM generated_files WHERE project_id=$1 ORDER BY created_at DESC', [projectId]),
+        db.query('SELECT id, name FROM folders WHERE project_id=$1 ORDER BY sort_order', [projectId])
+      ])
+      const folderMap = {}
+      folders.rows.forEach(f => { folderMap[f.id] = f.name })
+      const uploadedList = files.rows.map(f =>
+        `  - [id:${f.id}] "${f.display_name || f.original_name}" (${f.file_type}) في: ${f.folder_id ? folderMap[f.folder_id] || `مجلد#${f.folder_id}` : 'غير مصنّف'}`
+      ).join('\n')
+      const generatedList = genFiles.rows.map(f =>
+        `  - [genId:${f.id}] "${f.original_name}" (${f.file_type})`
+      ).join('\n')
+      return {
+        uploaded: uploadedList || 'لا توجد ملفات مرفوعة',
+        generated: generatedList || 'لا توجد ملفات مُولَّدة',
+        folders: folders.rows.map(f => `  - [folderId:${f.id}] "${f.name}"`).join('\n') || 'لا توجد مجلدات'
+      }
+    }
+    case 'renameProjectFile': {
+      const result = await db.query(
+        'UPDATE files SET display_name=$1 WHERE id=$2 AND project_id=$3 RETURNING id, display_name, original_name',
+        [args.newName, args.fileId, projectId]
+      )
+      if (!result.rows.length) throw new Error('الملف غير موجود أو لا تملك صلاحية')
+      return { success: true, message: `✅ تمت إعادة تسمية الملف إلى "${args.newName}"`, file: result.rows[0] }
+    }
+    case 'deleteProjectFile': {
+      const fileRes = await db.query(
+        'SELECT f.*, p.user_id FROM files f JOIN projects p ON p.id=f.project_id WHERE f.id=$1 AND f.project_id=$2',
+        [args.fileId, projectId]
+      )
+      if (!fileRes.rows.length) throw new Error('الملف غير موجود')
+      const file = fileRes.rows[0]
+      const filePath = path.join(UPLOADS_DIR, 'users', `user_${padId(file.user_id)}`, 'projects', `project_${padId(projectId)}`, file.stored_name)
+      if (fs.existsSync(filePath)) fs.unlink(filePath, () => {})
+      await db.query('DELETE FROM files WHERE id=$1', [args.fileId])
+      return { success: true, message: `🗑️ تم حذف الملف "${args.fileName}" نهائياً من المشروع` }
+    }
+    case 'moveProjectFileToFolder': {
+      const folderId = args.folderId || null
+      const result = await db.query(
+        'UPDATE files SET folder_id=$1 WHERE id=$2 AND project_id=$3 RETURNING id, display_name, original_name, folder_id',
+        [folderId, args.fileId, projectId]
+      )
+      if (!result.rows.length) throw new Error('الملف غير موجود')
+      const dest = args.folderName || (folderId ? `مجلد#${folderId}` : '"غير مصنّف"')
+      return { success: true, message: `📦 تم نقل الملف إلى ${dest}`, file: result.rows[0] }
+    }
+    default:
+      throw new Error(`دالة ملفات المشروع غير معروفة: ${name}`)
   }
 }
 
@@ -2014,7 +2126,7 @@ router.post('/:projectId/message', async (req, res) => {
 
 ---
 
-${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة للتحليل:\n${fileContents}` : '') + (Array.isArray(folderFiles) && folderFiles.length > 0 ? `\n\n---\n## ملفات المجلد المرتبط (على جهاز المستخدم):\nالمجلد المرتبط يحتوي على الملفات التالية:\n${folderFiles.map((f, i) => `${i + 1}. ${f.path || f.name}${f.size ? ` (${Math.round(f.size / 1024)} KB)` : ''}`).join('\n')}\n\nيمكنك كتابة ملفات أو إنشاء مجلدات أو حذف ملفات في هذا المجلد:\n- لإنشاء مجلد: [FOLDER_CREATE_DIR:مسار/المجلد]\n- لكتابة ملف نصي/كود: [FOLDER_WRITE_FILE:مسار/الملف.txt|محتوى الملف هنا]\n- لكتابة أو تعديل ملف Word (DOCX) مباشرةً في المجلد: [FOLDER_WRITE_DOCX:مسار/الملف.docx|اكتب المحتوى هنا بصيغة Markdown][/FOLDER_WRITE_DOCX]\n- لحذف ملف: [FOLDER_DELETE_FILE:مسار/الملف.txt]\nاستخدم هذه الوسوم عند الحاجة فقط، وسيقوم التطبيق بتنفيذها تلقائياً. عند الحذف تأكد من موافقة المستخدم الصريحة.` : '') + (Array.isArray(folderFileContents) && folderFileContents.length > 0 ? `\n\n---\n## محتوى ملفات المجلد المفتوحة للقراءة المباشرة:\nهذه الملفات مفتوحة من جهاز المستخدم مباشرةً بدون رفعها للمشروع. اقرأها وحللها كما لو كانت مرفوعة:\n\n${folderFileContents.filter(fc => !fc.isImage).map((fc) => `### [${fc.name}]${fc.truncated ? ' ⚠️ (محتوى مقتطع)' : ''}\n${fc.content}`).join('\n\n---\n\n')}${folderFileContents.some(fc => fc.isImage) ? `\n\n### الصور المرفقة:\n${folderFileContents.filter(fc => fc.isImage).map(fc => `- ${fc.name} (${fc.mimeType}) — مرسلة كـ inline_data في هذه الرسالة، انظر إليها مباشرةً وصفها وحللها.`).join('\n')}` : ''}` : '')
+${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة للتحليل:\n${fileContents}` : '') + (Array.isArray(folderFiles) && folderFiles.length > 0 ? `\n\n---\n## ملفات المجلد المرتبط (على جهاز المستخدم):\nالمجلد المرتبط يحتوي على الملفات التالية:\n${folderFiles.map((f, i) => `${i + 1}. ${f.path || f.name}${f.size ? ` (${Math.round(f.size / 1024)} KB)` : ''}`).join('\n')}\n\n### صلاحياتك الكاملة على المجلد المرتبط:\nيمكنك تنفيذ جميع العمليات التالية مباشرةً على الملفات والمجلدات — استخدم الوسوم المناسبة وسيقوم التطبيق بتنفيذها تلقائياً:\n\n**إنشاء:**\n- إنشاء مجلد فرعي: [FOLDER_CREATE_DIR:مسار/المجلد]\n- كتابة ملف نصي/كود/CSV/JSON: [FOLDER_WRITE_FILE:مسار/الملف.txt|محتوى الملف]\n- كتابة ملف Word (DOCX): [FOLDER_WRITE_DOCX:مسار/الملف.docx|المحتوى بصيغة Markdown][/FOLDER_WRITE_DOCX]\n\n**تعديل:**\n- إعادة تسمية ملف: [FOLDER_RENAME_FILE:المسار_القديم/الملف.txt|الاسم_الجديد.txt]\n  مثال: [FOLDER_RENAME_FILE:تقرير.txt|تقرير_2024.txt]\n\n**نسخ ونقل:**\n- نسخ ملف: [FOLDER_COPY_FILE:المصدر/الملف.txt|الوجهة/الملف_الجديد.txt]\n- نقل ملف: [FOLDER_MOVE_FILE:المصدر/الملف.txt|الوجهة/الملف.txt]\n  مثال (نقل لمجلد فرعي): [FOLDER_MOVE_FILE:ملف.txt|أرشيف/ملف.txt]\n\n**حذف:**\n- حذف ملف: [FOLDER_DELETE_FILE:مسار/الملف.txt]\n  ⚠️ تأكد من موافقة المستخدم الصريحة قبل الحذف.\n\n**ملاحظات مهمة:**\n- المسارات نسبية بالنسبة لجذر المجلد المرتبط\n- يمكن تنفيذ أكثر من وسم في نفس الرد (مثلاً: إنشاء مجلد ثم نقل ملف إليه)\n- الملفات المُولَّدة (Excel/PDF/Word) تُحفظ تلقائياً في هذا المجلد بمجرد إنشائها` : '') + (Array.isArray(folderFileContents) && folderFileContents.length > 0 ? `\n\n---\n## محتوى ملفات المجلد المفتوحة للقراءة المباشرة:\nهذه الملفات مفتوحة من جهاز المستخدم مباشرةً بدون رفعها للمشروع. اقرأها وحللها كما لو كانت مرفوعة:\n\n${folderFileContents.filter(fc => !fc.isImage).map((fc) => `### [${fc.name}]${fc.truncated ? ' ⚠️ (محتوى مقتطع)' : ''}\n${fc.content}`).join('\n\n---\n\n')}${folderFileContents.some(fc => fc.isImage) ? `\n\n### الصور المرفقة:\n${folderFileContents.filter(fc => fc.isImage).map(fc => `- ${fc.name} (${fc.mimeType}) — مرسلة كـ inline_data في هذه الرسالة، انظر إليها مباشرةً وصفها وحللها.`).join('\n')}` : ''}` : '')
 
     const systemText = FILE_GEN_PROTOCOL
 
@@ -2140,8 +2252,10 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         }
       } catch {}
 
-      const allTools = [...driveTools, ...githubTools]
-      const effectiveSystemText = systemText + driveSystemAddition + githubSystemAddition
+      const projectFileTools = getProjectFileTools()
+      const projectFileSystemAddition = `\n\n---\n## إدارة ملفات المشروع (متاحة دائماً)\nيمكنك إدارة ملفات المشروع المرفوعة مباشرةً من الدردشة:\n- **عرض جميع الملفات مع معرّفاتها**: listProjectFiles()\n- **إعادة تسمية ملف**: renameProjectFile(fileId, newName)\n- **حذف ملف** (بموافقة المستخدم): deleteProjectFile(fileId, fileName)\n- **نقل ملف لمجلد**: moveProjectFileToFolder(fileId, folderId?, folderName?)\nعند طلب أي عملية على ملفات المشروع، استخدم هذه الدوال فوراً. إذا لم تعرف fileId الملف، استخدم listProjectFiles() أولاً.`
+      const allTools = [...driveTools, ...githubTools, ...projectFileTools]
+      const effectiveSystemText = systemText + driveSystemAddition + githubSystemAddition + projectFileSystemAddition
 
       const modelConfig = {
         model: selectedModel,
@@ -2188,12 +2302,18 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
             const functionResponseParts = []
             for (const fc of calls) {
               const isGithub = GITHUB_FUNCTION_NAMES.has(fc.name)
-              const actionType = isGithub ? 'github' : 'drive'
+              const isProjectFile = PROJECT_FILE_FUNCTION_NAMES.has(fc.name)
+              const actionType = isGithub ? 'github' : isProjectFile ? 'project' : 'drive'
               res.write(`data: ${JSON.stringify({ type: `${actionType}_action_start`, action: fc.name, args: fc.args })}\n\n`)
               try {
-                const result = isGithub
-                  ? await executeGithubFunction(fc.name, fc.args, req.user.id)
-                  : await executeDriveFunction(fc.name, fc.args, req.user.id, req.params.projectId)
+                let result
+                if (isGithub) {
+                  result = await executeGithubFunction(fc.name, fc.args, req.user.id)
+                } else if (isProjectFile) {
+                  result = await executeProjectFileFunction(fc.name, fc.args, req.user.id, req.params.projectId, db)
+                } else {
+                  result = await executeDriveFunction(fc.name, fc.args, req.user.id, req.params.projectId)
+                }
                 res.write(`data: ${JSON.stringify({ type: `${actionType}_action_done`, action: fc.name, result })}\n\n`)
                 functionResponseParts.push({ functionResponse: { name: fc.name, response: result } })
               } catch (e) {
@@ -2663,6 +2783,36 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
         console.log(`[FOLDER] delete_file: ${filePath}`)
       }
       cleanResponse = cleanResponse.replace(/\[FOLDER_DELETE_FILE:[^\]]+\]/g, '').trim()
+
+      // Handle [FOLDER_RENAME_FILE:old_path|new_name] tags
+      const renameFileRegex = /\[FOLDER_RENAME_FILE:([^|]+)\|([^\]]+)\]/g
+      while ((m = renameFileRegex.exec(cleanResponse)) !== null) {
+        const oldPath = m[1].trim()
+        const newName = m[2].trim()
+        res.write(`data: ${JSON.stringify({ type: 'folder_action', action: 'rename_file', path: oldPath, newName })}\n\n`)
+        console.log(`[FOLDER] rename_file: ${oldPath} → ${newName}`)
+      }
+      cleanResponse = cleanResponse.replace(/\[FOLDER_RENAME_FILE:[^|]+\|[^\]]+\]/g, '').trim()
+
+      // Handle [FOLDER_COPY_FILE:source_path|dest_path] tags
+      const copyFileRegex = /\[FOLDER_COPY_FILE:([^|]+)\|([^\]]+)\]/g
+      while ((m = copyFileRegex.exec(cleanResponse)) !== null) {
+        const srcPath = m[1].trim()
+        const destPath = m[2].trim()
+        res.write(`data: ${JSON.stringify({ type: 'folder_action', action: 'copy_file', path: srcPath, destPath })}\n\n`)
+        console.log(`[FOLDER] copy_file: ${srcPath} → ${destPath}`)
+      }
+      cleanResponse = cleanResponse.replace(/\[FOLDER_COPY_FILE:[^|]+\|[^\]]+\]/g, '').trim()
+
+      // Handle [FOLDER_MOVE_FILE:source_path|dest_path] tags
+      const moveFileRegex = /\[FOLDER_MOVE_FILE:([^|]+)\|([^\]]+)\]/g
+      while ((m = moveFileRegex.exec(cleanResponse)) !== null) {
+        const srcPath = m[1].trim()
+        const destPath = m[2].trim()
+        res.write(`data: ${JSON.stringify({ type: 'folder_action', action: 'move_file', path: srcPath, destPath })}\n\n`)
+        console.log(`[FOLDER] move_file: ${srcPath} → ${destPath}`)
+      }
+      cleanResponse = cleanResponse.replace(/\[FOLDER_MOVE_FILE:[^|]+\|[^\]]+\]/g, '').trim()
     }
 
     await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [req.params.projectId])

@@ -108,6 +108,9 @@ export interface FolderSyncAPI {
   createDirectory:   (folderName: string, dirPath: string)                                            => Promise<'created' | 'no_folder' | 'denied' | 'error'>
   writeFileContent:  (folderName: string, filePath: string, content: string | Blob, mimeType?: string) => Promise<SaveResult>
   deleteFile:        (folderName: string, filePath: string)                                            => Promise<'deleted' | 'no_folder' | 'denied' | 'error'>
+  renameFile:        (folderName: string, oldPath: string, newName: string)                            => Promise<'renamed' | 'no_folder' | 'denied' | 'error'>
+  copyFile:          (folderName: string, sourcePath: string, destPath: string)                        => Promise<'copied' | 'no_folder' | 'denied' | 'error'>
+  moveFile:          (folderName: string, sourcePath: string, destPath: string)                        => Promise<'moved' | 'no_folder' | 'denied' | 'error'>
 
   // Legacy — single-folder compat (used by ProjectPage auto-save)
   pickFolder:         ()                             => Promise<void>
@@ -393,6 +396,106 @@ export function useFolderSync(): FolderSyncAPI {
     }
   }, [folders])
 
+  const renameFile = useCallback(async (
+    folderName: string,
+    oldPath: string,
+    newName: string
+  ): Promise<'renamed' | 'no_folder' | 'denied' | 'error'> => {
+    const entry = folders.find(f => f.name === folderName) ?? (folders[0] ?? null)
+    if (!entry) return 'no_folder'
+    try {
+      let perm = await entry.handle.queryPermission({ mode: 'readwrite' })
+      if (perm !== 'granted') perm = await entry.handle.requestPermission({ mode: 'readwrite' })
+      if (perm !== 'granted') return 'denied'
+      const parts = oldPath.split('/').filter(Boolean)
+      const oldName = parts.pop()!
+      let dir: FileSystemDirectoryHandle = entry.handle
+      for (const part of parts) dir = await dir.getDirectoryHandle(part)
+      const oldFh = await dir.getFileHandle(oldName)
+      const file = await oldFh.getFile()
+      const blob = new Blob([await file.arrayBuffer()], { type: file.type || 'application/octet-stream' })
+      const newFh = await dir.getFileHandle(sanitize(newName), { create: true })
+      const writable = await newFh.createWritable()
+      await writable.write(blob)
+      await writable.close()
+      await dir.removeEntry(oldName)
+      return 'renamed'
+    } catch (e: any) {
+      if (e?.name === 'NotAllowedError') return 'denied'
+      console.error('renameFile error:', e)
+      return 'error'
+    }
+  }, [folders])
+
+  const copyFile = useCallback(async (
+    folderName: string,
+    sourcePath: string,
+    destPath: string
+  ): Promise<'copied' | 'no_folder' | 'denied' | 'error'> => {
+    const entry = folders.find(f => f.name === folderName) ?? (folders[0] ?? null)
+    if (!entry) return 'no_folder'
+    try {
+      let perm = await entry.handle.queryPermission({ mode: 'readwrite' })
+      if (perm !== 'granted') perm = await entry.handle.requestPermission({ mode: 'readwrite' })
+      if (perm !== 'granted') return 'denied'
+      const srcParts = sourcePath.split('/').filter(Boolean)
+      const srcName = srcParts.pop()!
+      let srcDir: FileSystemDirectoryHandle = entry.handle
+      for (const part of srcParts) srcDir = await srcDir.getDirectoryHandle(part)
+      const srcFh = await srcDir.getFileHandle(srcName)
+      const file = await srcFh.getFile()
+      const blob = new Blob([await file.arrayBuffer()], { type: file.type || 'application/octet-stream' })
+      const destParts = destPath.split('/').filter(Boolean)
+      const destName = destParts.pop()!
+      let destDir: FileSystemDirectoryHandle = entry.handle
+      for (const part of destParts) destDir = await destDir.getDirectoryHandle(sanitize(part), { create: true })
+      const destFh = await destDir.getFileHandle(sanitize(destName), { create: true })
+      const writable = await destFh.createWritable()
+      await writable.write(blob)
+      await writable.close()
+      return 'copied'
+    } catch (e: any) {
+      if (e?.name === 'NotAllowedError') return 'denied'
+      console.error('copyFile error:', e)
+      return 'error'
+    }
+  }, [folders])
+
+  const moveFile = useCallback(async (
+    folderName: string,
+    sourcePath: string,
+    destPath: string
+  ): Promise<'moved' | 'no_folder' | 'denied' | 'error'> => {
+    const entry = folders.find(f => f.name === folderName) ?? (folders[0] ?? null)
+    if (!entry) return 'no_folder'
+    try {
+      let perm = await entry.handle.queryPermission({ mode: 'readwrite' })
+      if (perm !== 'granted') perm = await entry.handle.requestPermission({ mode: 'readwrite' })
+      if (perm !== 'granted') return 'denied'
+      const srcParts = sourcePath.split('/').filter(Boolean)
+      const srcName = srcParts.pop()!
+      let srcDir: FileSystemDirectoryHandle = entry.handle
+      for (const part of srcParts) srcDir = await srcDir.getDirectoryHandle(part)
+      const srcFh = await srcDir.getFileHandle(srcName)
+      const file = await srcFh.getFile()
+      const blob = new Blob([await file.arrayBuffer()], { type: file.type || 'application/octet-stream' })
+      const destParts = destPath.split('/').filter(Boolean)
+      const destName = destParts.pop()!
+      let destDir: FileSystemDirectoryHandle = entry.handle
+      for (const part of destParts) destDir = await destDir.getDirectoryHandle(sanitize(part), { create: true })
+      const destFh = await destDir.getFileHandle(sanitize(destName), { create: true })
+      const writable = await destFh.createWritable()
+      await writable.write(blob)
+      await writable.close()
+      await srcDir.removeEntry(srcName)
+      return 'moved'
+    } catch (e: any) {
+      if (e?.name === 'NotAllowedError') return 'denied'
+      console.error('moveFile error:', e)
+      return 'error'
+    }
+  }, [folders])
+
   // ── Legacy compat ─────────────────────────────────────────────────────────────
   const primaryFolder = folders.find(f => f.perm === 'granted') ?? (folders[0] ?? null)
 
@@ -427,6 +530,9 @@ export function useFolderSync(): FolderSyncAPI {
     createDirectory,
     writeFileContent,
     deleteFile,
+    renameFile,
+    copyFile,
+    moveFile,
     pickFolder,
     removeFolder_,
     requestPermission_,

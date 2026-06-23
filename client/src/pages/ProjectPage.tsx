@@ -29,19 +29,25 @@ export default function ProjectPage() {
 
   const {
     saveFile: saveFolderFile, folderName, permState: folderPermState,
-    listAllFiles, createDirectory, writeFileContent, deleteFile, primaryFolder
+    listAllFiles, createDirectory, writeFileContent, deleteFile, renameFile, copyFile, moveFile, primaryFolder
   } = useFolderSyncContext()
   const saveFolderFileRef = useRef(saveFolderFile)
   const listAllFilesRef = useRef(listAllFiles)
   const createDirectoryRef = useRef(createDirectory)
   const writeFileContentRef = useRef(writeFileContent)
   const deleteFileRef = useRef(deleteFile)
+  const renameFileRef = useRef(renameFile)
+  const copyFileRef = useRef(copyFile)
+  const moveFileRef = useRef(moveFile)
   const primaryFolderRef = useRef(primaryFolder)
   useEffect(() => { saveFolderFileRef.current = saveFolderFile }, [saveFolderFile])
   useEffect(() => { listAllFilesRef.current = listAllFiles }, [listAllFiles])
   useEffect(() => { createDirectoryRef.current = createDirectory }, [createDirectory])
   useEffect(() => { writeFileContentRef.current = writeFileContent }, [writeFileContent])
   useEffect(() => { deleteFileRef.current = deleteFile }, [deleteFile])
+  useEffect(() => { renameFileRef.current = renameFile }, [renameFile])
+  useEffect(() => { copyFileRef.current = copyFile }, [copyFile])
+  useEffect(() => { moveFileRef.current = moveFile }, [moveFile])
   useEffect(() => { primaryFolderRef.current = primaryFolder }, [primaryFolder])
   const folderActiveRef = useRef(false)
   useEffect(() => { folderActiveRef.current = folderPermState === 'granted' && !!folderName }, [folderPermState, folderName])
@@ -338,6 +344,21 @@ export default function ProjectPage() {
                   const result = await deleteFileRef.current(fname, data.path)
                   if (result === 'deleted') toast.success(`🗑️ تم حذف "${data.path}" من المجلد المرتبط`)
                   else if (result !== 'no_folder') toast.error(`فشل حذف الملف "${data.path}"`)
+                } else if (data.action === 'rename_file' && data.path && data.newName) {
+                  const fname = primaryFolderRef.current?.name || ''
+                  const result = await renameFileRef.current(fname, data.path, data.newName)
+                  if (result === 'renamed') toast.success(`✏️ تمت إعادة تسمية "${data.path}" إلى "${data.newName}"`)
+                  else if (result !== 'no_folder') toast.error(`فشل إعادة تسمية "${data.path}"`)
+                } else if (data.action === 'copy_file' && data.path && data.destPath) {
+                  const fname = primaryFolderRef.current?.name || ''
+                  const result = await copyFileRef.current(fname, data.path, data.destPath)
+                  if (result === 'copied') toast.success(`📋 تم نسخ "${data.path}" إلى "${data.destPath}"`)
+                  else if (result !== 'no_folder') toast.error(`فشل نسخ "${data.path}"`)
+                } else if (data.action === 'move_file' && data.path && data.destPath) {
+                  const fname = primaryFolderRef.current?.name || ''
+                  const result = await moveFileRef.current(fname, data.path, data.destPath)
+                  if (result === 'moved') toast.success(`📦 تم نقل "${data.path}" إلى "${data.destPath}"`)
+                  else if (result !== 'no_folder') toast.error(`فشل نقل "${data.path}"`)
                 }
               } else if (data.type === 'done') {
                 if (data.generatedFile) {
