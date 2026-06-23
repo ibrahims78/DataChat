@@ -111,8 +111,21 @@ router.get('/auth/callback', async (req, res) => {
     const { tokens } = await oauth2Client.getToken(code)
     oauth2Client.setCredentials(tokens)
 
-    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client })
-    const userInfo = await oauth2.userinfo.get()
+    let email = null
+    let name = null
+    if (tokens.id_token) {
+      try {
+        const payload = JSON.parse(Buffer.from(tokens.id_token.split('.')[1], 'base64url').toString())
+        email = payload.email || null
+        name = payload.name || null
+      } catch (_) {}
+    }
+    if (!email) {
+      const oauth2Api = google.oauth2({ version: 'v2', auth: oauth2Client })
+      const userInfo = await oauth2Api.userinfo.get()
+      email = userInfo.data.email || null
+      name = userInfo.data.name || null
+    }
 
     await db.query(
       `INSERT INTO google_oauth (user_id, access_token, refresh_token, token_expiry, google_email, google_name, connected_at, updated_at)
@@ -129,8 +142,8 @@ router.get('/auth/callback', async (req, res) => {
         tokens.access_token,
         tokens.refresh_token || null,
         tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-        userInfo.data.email,
-        userInfo.data.name,
+        email,
+        name,
       ]
     )
     res.redirect('/drive?connected=1')
