@@ -50,6 +50,17 @@ async function sendDocument(token, chatId, filePath, caption) {
   }
 }
 
+// ── File type mapper (mirrors files.js getFileType) ──────────────────────────
+function getFileType(filename) {
+  const ext = path.extname(filename).toLowerCase()
+  const map = {
+    '.xlsx': 'excel', '.xlsm': 'excel', '.xls': 'excel',
+    '.csv': 'csv', '.pdf': 'pdf', '.docx': 'word', '.doc': 'word',
+    '.md': 'markdown', '.txt': 'text', '.json': 'json', '.html': 'html', '.htm': 'html'
+  }
+  return map[ext] || 'unknown'
+}
+
 // ── Markdown to Telegram HTML converter ──────────────────────────────────────
 function mdToHtml(text) {
   return (text || '')
@@ -359,6 +370,7 @@ router.post('/webhook/:userId/:secret', express.json(), async (req, res) => {
         [userId, pName]
       )
       const newProj = proj.rows[0]
+      await db.query('INSERT INTO conversations (project_id) VALUES ($1)', [newProj.id])
       await db.query(
         'UPDATE telegram_settings SET active_project_id=$1, updated_at=NOW() WHERE user_id=$2',
         [newProj.id, userId]
@@ -476,16 +488,24 @@ router.post('/webhook/:userId/:secret', express.json(), async (req, res) => {
       const fileRes = await axios.get(fileUrl, { responseType: 'arraybuffer', timeout: 60000 })
       const fileBuffer = Buffer.from(fileRes.data)
 
-      // Save to uploads folder
+      // Save to proper project directory (mirrors files.js structure)
+      function padId(id) { return String(id).padStart(4, '0') }
+      const projectDir = path.join(__dirname, '../../../uploads', 'users', `user_${padId(user.id)}`, 'projects', `project_${padId(settings.active_project_id)}`)
+      if (!fs.existsSync(projectDir)) fs.mkdirSync(projectDir, { recursive: true })
       const storedName = `${Date.now()}_${crypto.randomBytes(6).toString('hex')}.${fileExt}`
-      const uploadPath = path.join(__dirname, '../../../uploads', storedName)
+      const uploadPath = path.join(projectDir, storedName)
       fs.writeFileSync(uploadPath, fileBuffer)
 
-      // Save to DB
+      // Map extension to file type (mirrors files.js getFileType)
+      const mappedFileType = getFileType(fileName)
+
+      // Save to DB and update project timestamp
+      const maxOrder = await db.query('SELECT COALESCE(MAX(sort_order),0) as m FROM files WHERE project_id=$1', [settings.active_project_id])
       await db.query(
-        'INSERT INTO files (project_id, original_name, stored_name, file_type, file_size, mime_type) VALUES ($1,$2,$3,$4,$5,$6)',
-        [settings.active_project_id, fileName, storedName, fileExt, fileBuffer.length, doc.mime_type || 'application/octet-stream']
+        'INSERT INTO files (project_id, original_name, stored_name, file_type, file_size, mime_type, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [settings.active_project_id, fileName, storedName, mappedFileType, fileBuffer.length, doc.mime_type || 'application/octet-stream', parseInt(maxOrder.rows[0].m) + 1]
       )
+      await db.query('UPDATE projects SET updated_at=NOW() WHERE id=$1', [settings.active_project_id])
 
       await sendMessage(token, chatId,
         `✅ تم رفع الملف <b>${fileName}</b> بنجاح!\n\n` +

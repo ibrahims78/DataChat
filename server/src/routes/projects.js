@@ -39,7 +39,7 @@ router.get('/', async (req, res) => {
   try {
     const { sort = 'updated_at', order = 'DESC', type } = req.query
     const isAdmin = req.user.role === 'admin'
-    const allowedSorts = { 'updated_at': 'p.updated_at', 'created_at': 'p.created_at', 'name': 'p.name', 'messages': 'msg_count' }
+    const allowedSorts = { 'updated_at': 'p.updated_at', 'created_at': 'p.created_at', 'name': 'p.name', 'messages': 'message_count' }
     const sortCol = allowedSorts[sort] || 'p.updated_at'
     const sortDir = order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
 
