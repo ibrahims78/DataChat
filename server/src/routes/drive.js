@@ -80,11 +80,13 @@ router.get('/auth/url', authenticate, async (req, res) => {
       access_type: 'offline',
       prompt: 'consent',
       scope: [
+        'openid',
+        'email',
+        'profile',
         'https://www.googleapis.com/auth/drive',
-        'https://www.googleapis.com/auth/userinfo.email',
-        'https://www.googleapis.com/auth/userinfo.profile',
       ],
       state: String(req.user.id),
+      include_granted_scopes: true,
     })
     res.json({ url })
   } catch (err) { res.status(400).json({ error: err.message }) }
