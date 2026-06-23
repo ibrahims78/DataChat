@@ -46,6 +46,13 @@ export default function SettingsPage() {
   const [tgProjectId, setTgProjectId] = useState<number | ''>('')
   const [savingTg, setSavingTg] = useState(false)
   const [disconnectingTg, setDisconnectingTg] = useState(false)
+  // Per-user AI key state
+  const [myAi, setMyAi] = useState<any>({ provider: 'gemini', model: 'gemini-2.5-flash', temperature: 0.7, system_prompt: '', has_api_key: false, api_key: '' })
+  const [myAiKeyChanged, setMyAiKeyChanged] = useState(false)
+  const [showMyAiKey, setShowMyAiKey] = useState(false)
+  const [testingMyAi, setTestingMyAi] = useState(false)
+  const [myAiTestResult, setMyAiTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [savingMyAi, setSavingMyAi] = useState(false)
   // GitHub state
   const [ghSettings, setGhSettings] = useState<any>({ connected: false })
   const [ghToken, setGhToken] = useState('')
@@ -93,7 +100,52 @@ export default function SettingsPage() {
           try { const rRes = await api.get('/github/repos'); setGhRepos(rRes.data) } catch {}
         }
       }
+      if (tab === 'profile') {
+        try {
+          const r = await api.get('/user/ai-settings')
+          setMyAi({ ...r.data, api_key: '' })
+          setMyAiKeyChanged(false)
+          setMyAiTestResult(null)
+        } catch {}
+      }
     } catch {}
+  }
+
+  const saveMyAi = async () => {
+    setSavingMyAi(true)
+    try {
+      await api.post('/user/ai-settings', {
+        provider: myAi.provider,
+        model: myAi.model,
+        temperature: myAi.temperature,
+        system_prompt: myAi.system_prompt,
+        api_key: myAiKeyChanged ? myAi.api_key : undefined,
+      })
+      toast.success('تم حفظ مفتاحك بنجاح')
+      setMyAiKeyChanged(false)
+      fetchData()
+    } catch (err: any) { toast.error(err.response?.data?.error || 'فشل الحفظ') }
+    finally { setSavingMyAi(false) }
+  }
+
+  const testMyAiKey = async () => {
+    if (!myAi.api_key) return toast.error('أدخل المفتاح أولاً')
+    setTestingMyAi(true)
+    setMyAiTestResult(null)
+    try {
+      const r = await api.post('/user/ai-settings/test', { api_key: myAi.api_key, provider: myAi.provider })
+      setMyAiTestResult({ ok: true, msg: r.data.message })
+    } catch (err: any) {
+      setMyAiTestResult({ ok: false, msg: err.response?.data?.error || 'فشل الاختبار' })
+    } finally { setTestingMyAi(false) }
+  }
+
+  const clearMyAiKey = async () => {
+    try {
+      await api.post('/user/ai-settings', { provider: myAi.provider, model: myAi.model, temperature: myAi.temperature, system_prompt: myAi.system_prompt, clear_key: true })
+      toast.success('تم مسح مفتاحك — سيُستخدم المفتاح العام')
+      fetchData()
+    } catch { toast.error('فشل المسح') }
   }
 
   const connectGithub = async () => {
@@ -1143,6 +1195,112 @@ export default function SettingsPage() {
             </div>
             <button onClick={saveProfile} className="btn-primary">{tr('save')}</button>
           </div>
+
+          {/* Personal AI Key */}
+          <div className="card p-6 space-y-4 mb-4">
+            <div className="flex items-center gap-3">
+              <KeyRound size={18} className="text-primary-600" />
+              <div>
+                <h3 className="font-semibold text-[var(--text)]">مفتاح AI الشخصي</h3>
+                <p className="text-xs text-[var(--muted)]">اختياري — يتجاوز المفتاح العام ويُطبَّق على محادثاتك فقط</p>
+              </div>
+            </div>
+
+            {/* Provider */}
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { id: 'gemini', label: 'Google Gemini', badge: 'موصى به', icon: '🤖' },
+                { id: 'openai', label: 'OpenAI', badge: 'GPT / o1', icon: '🟢' },
+              ].map(p => (
+                <button key={p.id} type="button"
+                  onClick={() => setMyAi((s: any) => ({ ...s, provider: p.id, model: p.id === 'gemini' ? 'gemini-2.5-flash' : 'gpt-4o-mini' }))}
+                  className={`flex items-center gap-3 p-3 rounded-xl border-2 text-start transition-all ${myAi.provider === p.id ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-[var(--border)] hover:border-primary-300'}`}>
+                  <span className="text-xl">{p.icon}</span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[var(--text)]">{p.label}</p>
+                    <p className="text-xs text-[var(--muted)]">{p.badge}</p>
+                  </div>
+                  {myAi.provider === p.id && <CheckCircle size={15} className="text-primary-600 shrink-0 ms-auto" />}
+                </button>
+              ))}
+            </div>
+
+            {/* Model */}
+            <div>
+              <label className="block text-sm font-semibold text-[var(--text)] mb-1.5">
+                {myAi.provider === 'openai' ? 'نموذج OpenAI' : 'نموذج Gemini'}
+              </label>
+              {myAi.provider === 'openai' ? (
+                <select className="input-field" value={myAi.model} onChange={e => setMyAi((p: any) => ({ ...p, model: e.target.value }))}>
+                  <option value="gpt-4o-mini">GPT-4o Mini (موصى به)</option>
+                  <option value="gpt-4o">GPT-4o (الأقوى)</option>
+                  <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo (اقتصادي)</option>
+                </select>
+              ) : (
+                <select className="input-field" value={myAi.model} onChange={e => setMyAi((p: any) => ({ ...p, model: e.target.value }))}>
+                  <option value="gemini-2.5-flash">Gemini 2.5 Flash (موصى به)</option>
+                  <option value="gemini-2.5-pro">Gemini 2.5 Pro (أعلى دقة)</option>
+                  <option value="gemini-flash-latest">Gemini Flash Latest</option>
+                  <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (اقتصادي)</option>
+                </select>
+              )}
+            </div>
+
+            {/* API Key input */}
+            <div className="border border-[var(--border)] rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-semibold text-[var(--text)]">
+                  {myAi.provider === 'openai' ? 'مفتاح OpenAI API' : 'مفتاح Gemini API'}
+                </label>
+                {myAi.has_api_key && !myAiKeyChanged && (
+                  <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full">محفوظ ✓</span>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  className="input-field pe-10 font-mono text-sm"
+                  type={showMyAiKey ? 'text' : 'password'}
+                  placeholder={myAi.provider === 'openai' ? 'sk-...' : 'AIzaSy...'}
+                  value={myAi.api_key}
+                  onChange={e => { setMyAi((p: any) => ({ ...p, api_key: e.target.value })); setMyAiKeyChanged(true); setMyAiTestResult(null) }}
+                  dir="ltr"
+                />
+                <button type="button" onClick={() => setShowMyAiKey(!showMyAiKey)}
+                  className="absolute end-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)]">
+                  {showMyAiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <button onClick={testMyAiKey} disabled={testingMyAi || !myAi.api_key}
+                  className="btn-ghost text-sm flex items-center gap-2 disabled:opacity-50">
+                  {testingMyAi ? <><Loader2 size={14} className="animate-spin" /> جاري الاختبار...</> : 'اختبار المفتاح'}
+                </button>
+                {myAi.has_api_key && !myAiKeyChanged && (
+                  <button onClick={clearMyAiKey} className="btn-ghost text-sm text-red-500 hover:text-red-600 flex items-center gap-2">
+                    <XCircle size={14} /> مسح واستخدام المفتاح العام
+                  </button>
+                )}
+                {myAiTestResult && (
+                  <span className={`flex items-center gap-1.5 text-sm font-medium ${myAiTestResult.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {myAiTestResult.ok ? <CheckCircle size={15} /> : <XCircle size={15} />}
+                    {myAiTestResult.msg}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-[var(--muted)]">
+                {myAi.provider === 'openai'
+                  ? <><a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="text-primary-600 underline">platform.openai.com/api-keys</a> — المفتاح يبدأ بـ sk-</>
+                  : <><a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-primary-600 underline">Google AI Studio</a> — مجاني للاستخدام الشخصي</>}
+                {!myAi.has_api_key && <span className="block mt-1 text-amber-600 dark:text-amber-400">⚠️ بدون مفتاح خاص، يُستخدم المفتاح العام للنظام تلقائياً</span>}
+              </p>
+            </div>
+
+            <button onClick={saveMyAi} disabled={savingMyAi} className="btn-primary flex items-center gap-2 disabled:opacity-50">
+              {savingMyAi ? <><Loader2 size={15} className="animate-spin" /> جاري الحفظ...</> : 'حفظ مفتاح AI'}
+            </button>
+          </div>
+
           <div className="card p-6">
             <h3 className="font-semibold text-[var(--text)] mb-2">المظهر واللغة</h3>
             <div className="flex flex-col gap-3">
