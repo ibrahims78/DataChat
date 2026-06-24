@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Users, BarChart3, Settings, User, Star, Plus, Trash2, Eye, EyeOff, Mail, CheckCircle, XCircle, Loader2, KeyRound, Pencil, ShieldCheck, UserCheck, UserX, HardDrive, Send, Link, Unlink, Copy, RefreshCw, Github, GitBranch, GitCommit, BookOpen, Code2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Users, BarChart3, Settings, User, Star, Plus, Trash2, Eye, EyeOff, Mail, CheckCircle, XCircle, Loader2, KeyRound, Pencil, ShieldCheck, UserCheck, UserX, HardDrive, Send, Link, Unlink, Copy, RefreshCw, Github, GitBranch, GitCommit, BookOpen, Code2, RotateCcw, Maximize2, X } from 'lucide-react'
 import { useTheme } from '../contexts/ThemeContext'
 import { useT } from '../i18n/translations'
 import { useAuth } from '../contexts/AuthContext'
@@ -53,6 +53,11 @@ export default function SettingsPage() {
   const [testingMyAi, setTestingMyAi] = useState(false)
   const [myAiTestResult, setMyAiTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [savingMyAi, setSavingMyAi] = useState(false)
+  const [loadingDefault, setLoadingDefault] = useState(false)
+  const [promptModalOpen, setPromptModalOpen] = useState(false)
+  const [promptModalTarget, setPromptModalTarget] = useState<'admin' | 'user'>('admin')
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const myPromptTextareaRef = useRef<HTMLTextAreaElement>(null)
   // GitHub state
   const [ghSettings, setGhSettings] = useState<any>({ connected: false })
   const [ghToken, setGhToken] = useState('')
@@ -321,6 +326,25 @@ export default function SettingsPage() {
     } finally {
       setTestingApi(false)
     }
+  }
+
+  const loadDefaultPromptFor = async (target: 'admin' | 'user') => {
+    setLoadingDefault(true)
+    try {
+      const r = await api.get('/admin/settings/default-prompt')
+      if (target === 'admin') {
+        setAiSettings((p: any) => ({ ...p, system_prompt: r.data.prompt }))
+      } else {
+        setMyAi((p: any) => ({ ...p, system_prompt: r.data.prompt }))
+      }
+      toast.success('تم تحميل النص الافتراضي')
+    } catch { toast.error('فشل تحميل النص الافتراضي') }
+    finally { setLoadingDefault(false) }
+  }
+
+  const openPromptModal = (target: 'admin' | 'user') => {
+    setPromptModalTarget(target)
+    setPromptModalOpen(true)
   }
 
   const saveProfile = async () => {
@@ -717,14 +741,44 @@ export default function SettingsPage() {
           )}
 
           <div>
-            <label className="block text-sm font-semibold text-[var(--text)] mb-2">{tr('systemPrompt')}</label>
-            <textarea className="input-field" rows={7} value={aiSettings.system_prompt}
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-semibold text-[var(--text)]">{tr('systemPrompt')}</label>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--muted)]">{aiSettings.system_prompt?.length || 0} حرف</span>
+                <button
+                  type="button"
+                  onClick={() => { setPromptModalTarget('admin'); loadDefaultPromptFor('admin') }}
+                  disabled={loadingDefault}
+                  className="btn-ghost text-xs flex items-center gap-1.5 py-1 px-2"
+                  title="استعادة النص الافتراضي"
+                >
+                  {loadingDefault ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                  الافتراضي
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openPromptModal('admin')}
+                  className="btn-ghost text-xs flex items-center gap-1.5 py-1 px-2"
+                  title="فتح المحرر الكامل"
+                >
+                  <Maximize2 size={12} />
+                  محرر كامل
+                </button>
+              </div>
+            </div>
+            <textarea
+              ref={promptTextareaRef}
+              className="input-field font-mono text-sm leading-relaxed"
+              style={{ minHeight: '280px', resize: 'vertical' }}
+              value={aiSettings.system_prompt}
               onChange={e => setAiSettings((p: any) => ({ ...p, system_prompt: e.target.value }))}
-              placeholder="أنت مساعد ذكي متخصص في تحليل البيانات..." />
+              placeholder="اترك فارغاً لاستخدام النص الافتراضي المدمج في النظام..."
+              dir="rtl"
+            />
             <div className="mt-2 flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
               <span className="mt-0.5 shrink-0">⚙️</span>
               <p className="text-xs text-amber-700 dark:text-amber-300">
-                <strong>ملاحظة:</strong> بروتوكول إنشاء الملفات (Excel / PDF) يُضاف تلقائياً من النظام بعد هذا النص، ولا تحتاج لكتابته يدوياً. أي تعديل تحفظه هنا يُطبَّق فوراً على كل المحادثات.
+                <strong>ملاحظة:</strong> إذا تُرك فارغاً يُستخدم النص الافتراضي المدمج. بروتوكول إنشاء الملفات يُضاف تلقائياً ولا تحتاج لكتابته. أي تعديل يُطبَّق فوراً على كل المحادثات.
               </p>
             </div>
           </div>
@@ -1296,8 +1350,58 @@ export default function SettingsPage() {
               </p>
             </div>
 
+            {/* System Prompt — personal override */}
+            <div className="border-t border-[var(--border)] pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <label className="text-sm font-semibold text-[var(--text)] block">نص التوجيه الشخصي (System Prompt)</label>
+                  <p className="text-xs text-[var(--muted)] mt-0.5">اترك فارغاً لاستخدام النص العام للنظام</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-[var(--muted)]">{myAi.system_prompt?.length || 0} حرف</span>
+                  <button
+                    type="button"
+                    onClick={() => loadDefaultPromptFor('user')}
+                    disabled={loadingDefault}
+                    className="btn-ghost text-xs flex items-center gap-1.5 py-1 px-2"
+                    title="تحميل النص الافتراضي"
+                  >
+                    {loadingDefault ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                    الافتراضي
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openPromptModal('user')}
+                    className="btn-ghost text-xs flex items-center gap-1.5 py-1 px-2"
+                    title="فتح المحرر الكامل"
+                  >
+                    <Maximize2 size={12} />
+                    محرر كامل
+                  </button>
+                </div>
+              </div>
+              <textarea
+                ref={myPromptTextareaRef}
+                className="input-field font-mono text-sm leading-relaxed w-full"
+                style={{ minHeight: '200px', resize: 'vertical' }}
+                value={myAi.system_prompt || ''}
+                onChange={e => setMyAi((p: any) => ({ ...p, system_prompt: e.target.value }))}
+                placeholder="اكتب نصاً مخصصاً لك، أو اضغط 'الافتراضي' لتحميل النص العام..."
+                dir="rtl"
+              />
+              {myAi.system_prompt && (
+                <button
+                  type="button"
+                  onClick={() => setMyAi((p: any) => ({ ...p, system_prompt: '' }))}
+                  className="mt-1.5 text-xs text-red-500 hover:text-red-600 flex items-center gap-1"
+                >
+                  <X size={11} /> مسح النص الشخصي والعودة للنص العام
+                </button>
+              )}
+            </div>
+
             <button onClick={saveMyAi} disabled={savingMyAi} className="btn-primary flex items-center gap-2 disabled:opacity-50">
-              {savingMyAi ? <><Loader2 size={15} className="animate-spin" /> جاري الحفظ...</> : 'حفظ مفتاح AI'}
+              {savingMyAi ? <><Loader2 size={15} className="animate-spin" /> جاري الحفظ...</> : 'حفظ إعدادات AI'}
             </button>
           </div>
 
@@ -1526,6 +1630,102 @@ export default function SettingsPage() {
         onCancel={() => setDeleteUserTarget(null)}
         onConfirm={deleteUser}
       />
+
+      {/* Full-screen Prompt Editor Modal */}
+      {promptModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col" style={{ height: '90vh' }}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
+                  <Settings size={18} className="text-primary-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-[var(--text)]">
+                    {promptModalTarget === 'admin' ? 'تعديل System Prompt العام' : 'تعديل System Prompt الشخصي'}
+                  </h3>
+                  <p className="text-xs text-[var(--muted)]">
+                    {promptModalTarget === 'admin'
+                      ? 'يُطبَّق على جميع المستخدمين'
+                      : 'يُطبَّق على محادثاتك فقط'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--muted)] tabular-nums">
+                  {promptModalTarget === 'admin'
+                    ? (aiSettings.system_prompt?.length || 0)
+                    : (myAi.system_prompt?.length || 0)} حرف
+                </span>
+                <button
+                  onClick={() => loadDefaultPromptFor(promptModalTarget)}
+                  disabled={loadingDefault}
+                  className="btn-ghost text-sm flex items-center gap-2"
+                >
+                  {loadingDefault ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                  تحميل الافتراضي
+                </button>
+                <button
+                  onClick={() => setPromptModalOpen(false)}
+                  className="p-2 rounded-lg hover:bg-[var(--bg)] text-[var(--muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Textarea */}
+            <div className="flex-1 p-4 overflow-hidden">
+              <textarea
+                className="w-full h-full rounded-xl border border-[var(--border)] bg-[var(--bg)] text-[var(--text)] font-mono text-sm leading-relaxed p-4 focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 resize-none"
+                value={promptModalTarget === 'admin' ? (aiSettings.system_prompt || '') : (myAi.system_prompt || '')}
+                onChange={e => {
+                  if (promptModalTarget === 'admin') {
+                    setAiSettings((p: any) => ({ ...p, system_prompt: e.target.value }))
+                  } else {
+                    setMyAi((p: any) => ({ ...p, system_prompt: e.target.value }))
+                  }
+                }}
+                placeholder="اكتب نص التوجيه هنا، أو اضغط 'تحميل الافتراضي' لتحميل النص المدمج..."
+                dir="rtl"
+                spellCheck={false}
+              />
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between px-5 py-4 border-t border-[var(--border)] shrink-0 bg-[var(--bg)] rounded-b-2xl">
+              <div className="flex items-start gap-2 text-xs text-[var(--muted)]">
+                <span>💡</span>
+                <span>بروتوكول إنشاء الملفات يُضاف تلقائياً — لا تحتاج لكتابته هنا</span>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setPromptModalOpen(false)}
+                  className="btn-ghost"
+                >
+                  إغلاق
+                </button>
+                <button
+                  onClick={async () => {
+                    if (promptModalTarget === 'admin') {
+                      await saveAI()
+                    } else {
+                      await saveMyAi()
+                    }
+                    setPromptModalOpen(false)
+                  }}
+                  disabled={savingMyAi}
+                  className="btn-primary flex items-center gap-2"
+                >
+                  {savingMyAi ? <Loader2 size={14} className="animate-spin" /> : null}
+                  حفظ
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
