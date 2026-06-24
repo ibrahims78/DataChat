@@ -215,6 +215,10 @@ CREATE TABLE IF NOT EXISTS telegram_chats (
   UNIQUE(user_id, telegram_chat_id)
 );
 
+-- Telegram enhanced settings columns
+ALTER TABLE telegram_settings ADD COLUMN IF NOT EXISTS ai_model VARCHAR(100) DEFAULT 'gemini-2.5-flash';
+ALTER TABLE telegram_settings ADD COLUMN IF NOT EXISTS custom_prompt TEXT DEFAULT NULL;
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);
 CREATE INDEX IF NOT EXISTS idx_drive_links_project_id ON project_drive_links(project_id);
