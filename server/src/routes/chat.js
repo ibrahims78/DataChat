@@ -2315,7 +2315,12 @@ ${basePrompt}` + (fileContents ? `\n\n---\n## الملفات المرفوعة ل
                   result = await executeDriveFunction(fc.name, fc.args, req.user.id, req.params.projectId)
                 }
                 res.write(`data: ${JSON.stringify({ type: `${actionType}_action_done`, action: fc.name, result })}\n\n`)
-                functionResponseParts.push({ functionResponse: { name: fc.name, response: result } })
+                const safeResult = (result === null || result === undefined)
+                  ? { result: null }
+                  : (typeof result !== 'object' || Array.isArray(result))
+                    ? { result }
+                    : result
+                functionResponseParts.push({ functionResponse: { name: fc.name, response: safeResult } })
               } catch (e) {
                 const errResult = { error: e.message }
                 res.write(`data: ${JSON.stringify({ type: `${actionType}_action_error`, action: fc.name, error: e.message })}\n\n`)
